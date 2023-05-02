@@ -1,0 +1,37 @@
+<!-- Include error messages -->
+<%- include ('./partiels/erreurs_msg') %>
+<h1 class="text-center mt-5">Liste des usagers</h1>
+<div class="card">
+  <div class="card-body">
+        <p>
+          <img src="/images/<%=user.fichierImage%>" alt="avatar" class="avatar rounded-circle mr-2">
+          <%= user.nom %> (<%= user.login%>)
+        </p>
+    <% let admin = user.role.includes('admin'); %>
+    <div class="usagers-list">
+      <div class="listeUsagers">
+        <% usagers.forEach(function(usager) { %>
+          <div class="card mb-3">
+            <div class="card-body">
+              <p>
+                <img src="/images/<%=usager.fichierImage%>" alt="avatar" class="avatar rounded-circle mr-2">
+                <%= usager.login %> -
+                <%= usager.nom %> -
+                <%= usager.role.length > 1 ? '(': '' %>
+                  <%= usager.role.indexOf('admin')!==-1?'A':'' %> 
+                  <%= usager.role.indexOf('gestion')!==-1?'G':'' %> 
+                <%= usager.role.length > 1 ? ')': '' %>
+                <% if (admin) { %>
+                  <a href="/usagers/supprimer/<%= usager._id %>"
+                    onclick="return confirm('Etes-vous certain de vouloir supprimer cette fiche?');" class="text-danger ml-2"><i class="fa fa-trash"></i></a>
+                  <a href="/usagers/editer/<%= usager._id %>" class="text-primary ml-2"><i class="fa fa-pencil-alt fa-fw"></i></a>
+                <% } %>
+              </p>
+            </div>
+          </div>
+        <% }); %>
+      </div>
+    </div>
+    <p><a href="/usagers" class="btn btn-primary mt-3">Retour au menu des usagers</a></p>
+  </div>
+</div>

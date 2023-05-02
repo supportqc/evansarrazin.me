@@ -1,0 +1,68 @@
+<h1 class="text-center mt-5">Modifier un usager</h1>
+<div class="container">
+  <div class="row">
+    <div class="col-md-6 offset-md-3">
+      <div class="card mt-5">
+        <div class="card-body">
+          <form action="/usagers/editer" method="post" enctype="multipart/form-data">
+            <input type="hidden" name="id" value="<%= usager._id %>">
+            <div class="form-group">
+              <label for="nom">Nom</label>
+              <input type="text" name="nom" id="nom" class="form-control" value="<%= usager.nom %>" required>
+            </div>
+            <div class="form-group">
+              <label for="email">Email</label>
+              <input type="email" name="email" id="email" class="form-control" value="<%= usager.login %>" required>
+            </div>
+            <div class="form-group">
+              <label for="password">Mot de passe</label>
+              <input type="password" name="password" id="password" class="form-control" value="<%= usager.pwd %>" required>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="show-password">
+                <label class="form-check-label" for="show-password">Afficher le mot de passe</label>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="roles">Rôles</label>
+              <div>
+                <div class="form-check form-check-inline">
+                  <input class="form-check-input" type="checkbox" name="roles[]" id="role-normal" value="normal" <%= usager.roles && usager.roles.includes('normal') ? 'checked' : '' %>>
+                  <label class="form-check-label" for="role-normal">Normal</label>
+                </div>
+                <div class="form-check form-check-inline">
+                  <input class="form-check-input" type="checkbox" name="roles[]" id="role-admin" value="admin" <%= usager.roles && usager.roles.includes('admin') ? 'checked' : '' %>>
+                  <label class="form-check-label" for="role-admin">Admin</label>
+                </div>
+                <div class="form-check form-check-inline">
+                  <input class="form-check-input" type="checkbox" name="roles[]" id="role-gestion" value="gestion" <%= usager.roles && usager.roles.includes('gestion') ? 'checked' : '' %>>
+                  <label class="form-check-label" for="role-gestion">Gestion</label>
+                </div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="image">Image de profil</label>
+              <input type="file" name="image" id="image" class="form-control-file">
+            </div>
+            <button type="submit" class="btn btn-primary">Enregistrer les modifications</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.3/dist/umd/popper.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+<script src="https://kit.fontawesome.com/your-fontawesome-kit.js" crossorigin="anonymous"></script>
+
+<script>
+  document.getElementById('show-password').addEventListener('change', function() {
+    var passwordInput = document.getElementById('password');
+    if (this.checked) {
+      passwordInput.type = 'text';
+    } else {
+      passwordInput.type = 'password';
+    }
+  });
+</script>

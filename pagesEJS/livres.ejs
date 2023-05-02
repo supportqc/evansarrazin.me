@@ -1,0 +1,12 @@
+<h1 class="text-center mt-5">Page de gestion des livres</h1>
+<!-- affichage des erreurs... -->
+<%- include ('./partiels/erreurs_msg') %>
+<div class="card">
+  <div class="card-body">
+    <img src="/images/<%=user.fichierImage%>" alt="avatar" class="avatar rounded-circle"> 
+    <h5 class="card-title"><%= user.nom %> (<%= user.login%>)</h5>
+    <p><a href="/livres/ajouter" class="btn btn-primary">Enregistrer un nouveau livre</a></p>
+    <p><a href="/livres/listeLivres" class="btn btn-primary">Afficher tous les livres</a></p>
+    <p><a href="/logout" class="btn btn-primary">Déconnexion</a></p>
+  </div>
+</div>

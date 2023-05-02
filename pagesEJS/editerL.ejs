@@ -1,0 +1,56 @@
+<h1 class="text-center mt-5">Modifier un livre</h1>
+<div class="container">
+  <div class="row">
+    <div class="col-md-6 offset-md-3">
+      <div class="card mt-5">
+        <div class="card-body">
+          <form action="/livres/editer" method="post" enctype="multipart/form-data">
+            <input type="hidden" name="id" value="<%= livre._id %>">
+            <div class="form-group">
+              <label for="titre">Titre</label>
+              <input type="text" name="titre" id="titre" class="form-control" value="<%= livre.titre %>" required>
+            </div>
+            <div class="form-group">
+              <label for="auteur">Auteur</label>
+              <input type="text" name="auteur" id="auteur" class="form-control" value="<%= livre.auteur %>" required>
+            </div>
+            <div class="form-group">
+              <label for="editeur">Editeur</label>
+              <input type="text" name="editeur" id="editeur" class="form-control" value="<%= livre.editeur %>" required>
+            </div>
+            <div class="form-group">
+              <label for="langue">Langue</label>
+              <input type="text" name="langue" id="langue" class="form-control" value="<%= livre.langue %>" required>
+            </div>
+            <div class="form-group">
+              <label for="isbn">ISBN</label>
+              <input type="text" name="isbn" id="isbn" class="form-control" value="<%= livre.isbn %>" required>
+            </div>
+            <div class="form-group">
+              <label for="prix">Prix</label>
+              <input type="number" name="prix" id="prix" class="form-control" value="<%= livre.prix %>" required>
+            </div>
+            <div class="form-group">
+              <label for="description">Description</label>
+              <textarea name="description" id="description" class="form-control" rows="3" required><%= livre.description %></textarea>
+            </div>
+            <div class="form-group">
+              <label for="nbPage">Nombre de pages</label>
+              <input type="number" name="nbPage" id="nbPage" class="form-control" value="<%= livre.nbPage %>" required>
+            </div>
+            <div class="form-group">
+              <label for="image">Image de couverture</label>
+              <input type="file" name="image" id="image" class="form-control-file">
+            </div>
+            <button type="submit" class="btn btn-primary">Enregistrer les modifications</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.3/dist/umd/popper.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+<script src="https://kit.fontawesome.com/your-fontawesome-kit.js" crossorigin="anonymous"></script>

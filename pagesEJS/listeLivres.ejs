@@ -1,0 +1,36 @@
+<h1 class="text-center mt-5">Liste des livres</h1>
+<!-- Include error messages -->
+<%- include ('./partiels/erreurs_msg') %>
+
+<div class="card">
+  <div class="card-body">
+    <p>
+      <img src="/images/<%=user.fichierImage%>" alt="avatar" class="avatar rounded-circle mr-2">
+      <%= user.nom %> (<%= user.login%>)
+    </p>
+    <div class="livres-list">
+      <div class="listeLivres">
+        <% livres.forEach(function(livre) { %>
+          <div class="livre-item card mb-3">
+            <div class="card-body">
+              <h5 class="card-title"><%= livre.titre %></h5>
+              <p class="card-text">Auteur: <%= livre.auteur %></p>
+              <p class="card-text">Langue: <%= livre.langue %></p>
+              <p class="card-text">Éditeur: <%= livre.editeur %></p>
+              <p class="card-text">ISBN: <%= livre.isbn %></p>
+              <p class="card-text">Prix: <%= livre.prix %></p>
+              <p class="card-text">Description: <%= livre.description %></p>
+              <p class="card-text">Pages: <%= livre.nbPage %></p>
+              <% if (user.role.includes('admin') || user.role.includes('gestion')) { %>
+                <a href="/livres/supprimer/<%= livre._id %>"
+                  onclick="return confirm('Etes-vous certain de vouloir supprimer cette fiche?');" class="text-danger ml-2"><i class="fa fa-trash"></i></a>
+                <a href="/livres/editer/<%= livre._id %>" class="text-primary ml-2"><i class="fa fa-pencil-alt fa-fw"></i></a>
+              <% } %>              
+            </div>
+          </div>
+        <% }); %>
+      </div>
+    </div>
+    <p><a href="/livres" class="btn btn-primary mt-3">Retour au menu des livres</a></p>
+  </div>
+</div>

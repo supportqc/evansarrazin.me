@@ -1,0 +1,86 @@
+<h1 class="text-center mt-5">Enregistrer un usager</h1>
+<!-- Include error messages -->
+<%- include ('./partiels/erreurs_msg') %>
+
+<div class="card">
+  <div class="card-body">
+    <form action="/usagers/register" method="POST" enctype="multipart/form-data">
+      <div class="form-group">
+        <label for="login">Login:</label>
+        <input
+          type="text"
+          name="login"
+          id="login"
+          class="form-control"
+          placeholder="Entrez le login"
+          value="<%= typeof login != 'undefined' ? login : '' %>"
+        />
+      </div>
+      <div class="form-group">
+        <label for="nom">Nom:</label>
+        <input
+          type="text"
+          name="nom"
+          id="nom"
+          class="form-control"
+          placeholder="Entrez le nom"
+          value="<%= typeof nom != 'undefined' ? nom : '' %>"
+        />
+      </div>
+      <div class="form-group">
+        <label for="pwd">Mot de passe:</label>
+        <input
+          type="password"
+          name="password"
+          id="pwd"
+          class="form-control"
+          placeholder="Entrez le mot de passe"
+          value="<%= typeof password != 'undefined' ? password : '' %>"
+        />
+      </div>
+      <div class="form-group">
+        <label for="pwd2">Confirmer le mot de passe:</label>
+        <input
+          type="password"
+          name="password2"
+          id="pwd2"
+          class="form-control"
+          placeholder="Confirmez le mot de passe"
+          value="<%= typeof password2 != 'undefined' ? password2 : '' %>"
+        />
+      </div>
+      <div class="form-group">
+        <label>Role:</label>
+        <div>
+          Normal
+          <input type="checkbox" name="normal" id="normal" checked disabled />
+          <label for="admin">Admin</label>
+          <input
+            type="checkbox"
+            name="admin"
+            id="admin"
+            <%= typeof admin != 'undefined' ? 'checked' : '' %>
+          />
+          <label for="gestion">Gestion</label>
+          <input
+            type="checkbox"
+            name="gestion"
+            id="gestion"
+            <%= typeof gestion != 'undefined' ? 'checked' : '' %>
+          />
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="fichier">Téléverser votre image: </label>
+        <input type="file" name="fichier" id="fichier" class="form-control-file" required />
+      </div>
+      <div class="form-group">
+        <input type="submit" value="Inscrire l'usager" class="btn btn-primary" />
+        <input type="reset" value="Rétablir" class="btn btn-secondary" />
+      </div>
+      <p>
+        <a href="/usagers" class="btn btn-primary">Revenir au menu</a>
+      </p>
+    </form>
+  </div>
+</div>
