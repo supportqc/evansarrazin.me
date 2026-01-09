@@ -13,6 +13,7 @@ import {
   StatusBar,
   Alert,
   Platform,
+  PanResponder,
 } from 'react-native';
 import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
@@ -45,6 +46,8 @@ export default function App() {
 
   // Ghost Mode
   const [ghostMode, setGhostMode] = useState(false);
+  const [showSlideToUnlock, setShowSlideToUnlock] = useState(false);
+  const slidePosition = useRef(new Animated.Value(0)).current;
 
   // Test Mode (fake users for testing)
   const [testMode, setTestMode] = useState(false);
@@ -159,6 +162,12 @@ export default function App() {
   useEffect(() => {
     if (testMode && location) {
       generateFakeUsers();
+
+      // Auto-generate crossings and conversations after 3 seconds
+      setTimeout(() => {
+        generateTestCrossingsAndChats();
+      }, 3000);
+
       const interval = setInterval(() => {
         updateFakeUsersPositions();
       }, 5000);
@@ -193,6 +202,43 @@ export default function App() {
       longitude: user.longitude + (Math.random() - 0.5) * 0.0001,
       lastSeen: Date.now(),
     })));
+  };
+
+  const generateTestCrossingsAndChats = () => {
+    if (!testMode || nearbyUsers.length === 0) return;
+
+    // Generate 3 random crossings
+    const numCrossings = Math.min(3, nearbyUsers.length);
+    const selectedUsers = nearbyUsers.slice(0, numCrossings);
+
+    const newCrossings = selectedUsers.map((user, index) => ({
+      id: `crossing-${Date.now()}-${index}`,
+      userId: user.id,
+      userName: user.name,
+      timestamp: Date.now() - (index + 1) * 180000, // 3, 6, 9 minutes ago
+      distance: Math.round(20 + Math.random() * 80), // 20-100m
+      location: 'proche',
+    }));
+
+    setCrossings(prev => [...newCrossings, ...prev]);
+
+    // Pre-fill conversations for the first 2 crossings
+    const testMessages = {
+      [selectedUsers[0].id]: [
+        { id: 'msg-1', text: 'Salut', sender: 'them', timestamp: Date.now() - 150000 },
+        { id: 'msg-2', text: 'Hey ! Comment ça va ?', sender: 'me', timestamp: Date.now() - 120000 },
+        { id: 'msg-3', text: 'Bien et toi ? Tu es dans le coin ?', sender: 'them', timestamp: Date.now() - 90000 },
+      ],
+      [selectedUsers[1].id]: [
+        { id: 'msg-4', text: '👋', sender: 'them', timestamp: Date.now() - 300000 },
+        { id: 'msg-5', text: 'Salut !', sender: 'me', timestamp: Date.now() - 270000 },
+      ],
+    };
+
+    setMessages(testMessages);
+
+    // Haptic feedback for success
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -440,48 +486,90 @@ export default function App() {
   // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    // Pulse animation for center dot
-    pulseAnimRef.current = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.3,
-          duration: 1500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
+    // Start animations immediately and keep them running
+    const startAnimations = () => {
+      // Pulse animation for center dot
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.3,
+            duration: 1500,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 1500,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+
+      // Radar sweep rotation
+      Animated.loop(
+        Animated.timing(radarRotation, {
           toValue: 1,
-          duration: 1500,
+          duration: 8000,
           useNativeDriver: true,
-        }),
-      ])
-    );
-    pulseAnimRef.current.start();
-
-    // Radar sweep rotation
-    radarAnimRef.current = Animated.loop(
-      Animated.timing(radarRotation, {
-        toValue: 1,
-        duration: 8000,
-        useNativeDriver: true,
-      })
-    );
-    radarAnimRef.current.start();
-
-    // Cleanup on unmount
-    return () => {
-      if (pulseAnimRef.current) {
-        pulseAnimRef.current.stop();
-      }
-      if (radarAnimRef.current) {
-        radarAnimRef.current.stop();
-      }
+        })
+      ).start();
     };
+
+    startAnimations();
   }, []);
 
   const radarRotationDegrees = radarRotation.interpolate({
     inputRange: [0, 1],
     outputRange: ['0deg', '360deg'],
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // GHOST MODE - LONG PRESS & SLIDE TO UNLOCK
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const handleCenterDotLongPress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    setShowSlideToUnlock(true);
+  };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => showSlideToUnlock,
+      onMoveShouldSetPanResponder: () => showSlideToUnlock,
+      onPanResponderMove: (_, gestureState) => {
+        if (!showSlideToUnlock) return;
+        const slideWidth = SCREEN_WIDTH - 120;
+        const newPosition = Math.max(0, Math.min(gestureState.dx, slideWidth - 60));
+        slidePosition.setValue(newPosition);
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (!showSlideToUnlock) return;
+        const slideWidth = SCREEN_WIDTH - 120;
+        const threshold = slideWidth * 0.7;
+
+        if (gestureState.dx > threshold) {
+          // Success - toggle ghost mode
+          Animated.spring(slidePosition, {
+            toValue: slideWidth - 60,
+            useNativeDriver: false,
+          }).start(() => {
+            setGhostMode(!ghostMode);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            setTimeout(() => {
+              setShowSlideToUnlock(false);
+              slidePosition.setValue(0);
+            }, 300);
+          });
+        } else {
+          // Cancel - slide back
+          Animated.spring(slidePosition, {
+            toValue: 0,
+            friction: 7,
+            useNativeDriver: false,
+          }).start();
+        }
+      },
+    })
+  ).current;
 
   // ─────────────────────────────────────────────────────────────────────────
   // RADAR VISUALIZATION
@@ -562,15 +650,45 @@ export default function App() {
       {/* Nearby users as dots */}
       {renderRadarDots()}
 
-      {/* Center dot (user) */}
-      <Animated.View
-        style={[
-          styles.centerDot,
-          {
-            transform: [{ scale: pulseAnim }],
-          },
-        ]}
-      />
+      {/* Center dot (user) - with long press */}
+      <TouchableOpacity
+        activeOpacity={0.8}
+        onLongPress={handleCenterDotLongPress}
+        delayLongPress={500}
+      >
+        <Animated.View
+          style={[
+            styles.centerDot,
+            {
+              transform: [{ scale: pulseAnim }],
+              backgroundColor: ghostMode ? '#666' : '#00ff88',
+              shadowColor: ghostMode ? '#666' : '#00ff88',
+            },
+          ]}
+        />
+      </TouchableOpacity>
+
+      {/* Slide to unlock */}
+      {showSlideToUnlock && (
+        <View style={styles.slideToUnlockContainer}>
+          <View style={styles.slideTrack}>
+            <Text style={styles.slideText}>
+              {ghostMode ? 'Glisser pour devenir visible' : 'Glisser pour devenir invisible'}
+            </Text>
+            <Animated.View
+              {...panResponder.panHandlers}
+              style={[
+                styles.slideThumb,
+                {
+                  transform: [{ translateX: slidePosition }],
+                },
+              ]}
+            >
+              <Text style={styles.slideThumbIcon}>{ghostMode ? '●' : '○'}</Text>
+            </Animated.View>
+          </View>
+        </View>
+      )}
 
       {/* Status text */}
       <Text style={styles.radarStatusText}>
@@ -807,15 +925,7 @@ export default function App() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.logo}>Gaydar</Text>
-        <TouchableOpacity
-          onPress={() => {
-            setGhostMode(!ghostMode);
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          }}
-          style={styles.ghostButton}
-        >
-          <Text style={styles.ghostButtonText}>{ghostMode ? '○' : '●'}</Text>
-        </TouchableOpacity>
+        <Text style={styles.headerHint}>Appui long sur le centre</Text>
       </View>
 
       {/* Main Content */}
@@ -954,14 +1064,10 @@ const styles = StyleSheet.create({
     color: '#fff',
     letterSpacing: 1,
   },
-  ghostButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  ghostButtonText: {
-    fontSize: 24,
+  headerHint: {
+    fontSize: 11,
+    color: '#666',
+    fontStyle: 'italic',
   },
 
   // ─── Content ───
@@ -1277,5 +1383,51 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#fff',
+  },
+
+  // ─── Slide to Unlock ───
+  slideToUnlockContainer: {
+    position: 'absolute',
+    bottom: 120,
+    width: SCREEN_WIDTH - 60,
+    alignItems: 'center',
+  },
+  slideTrack: {
+    width: '100%',
+    height: 60,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  slideText: {
+    fontSize: 13,
+    color: '#999',
+    fontWeight: '600',
+    textAlign: 'center',
+    paddingHorizontal: 70,
+  },
+  slideThumb: {
+    position: 'absolute',
+    left: 5,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#00ff88',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#00ff88',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  slideThumbIcon: {
+    fontSize: 24,
+    color: '#0a0a0a',
+    fontWeight: '700',
   },
 });
