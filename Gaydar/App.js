@@ -13,10 +13,10 @@ import {
   StatusBar,
   Alert,
   Platform,
-  PanResponder,
 } from 'react-native';
 import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
+import { DeviceMotion } from 'expo-sensors';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const RADAR_SIZE = Math.min(SCREEN_WIDTH, SCREEN_HEIGHT) * 0.7;
@@ -35,6 +35,9 @@ export default function App() {
   const [location, setLocation] = useState(null);
   const [locationPermission, setLocationPermission] = useState(null);
 
+  // Compass heading (0 = North)
+  const [heading, setHeading] = useState(0);
+
   // User Profile (filters that determine visibility to others)
   const [userProfile, setUserProfile] = useState({
     id: `echo-${Math.floor(Math.random() * 999)}`,
@@ -46,8 +49,6 @@ export default function App() {
 
   // Ghost Mode
   const [ghostMode, setGhostMode] = useState(false);
-  const [showSlideToUnlock, setShowSlideToUnlock] = useState(false);
-  const slidePosition = useRef(new Animated.Value(0)).current;
 
   // Test Mode (fake users for testing)
   const [testMode, setTestMode] = useState(false);
@@ -70,11 +71,12 @@ export default function App() {
   // Animations
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const radarRotation = useRef(new Animated.Value(0)).current;
-  const pulseAnimRef = useRef(null);
-  const radarAnimRef = useRef(null);
+  const waveAnim1 = useRef(new Animated.Value(0)).current;
+  const waveAnim2 = useRef(new Animated.Value(0)).current;
+  const waveAnim3 = useRef(new Animated.Value(0)).current;
+  const [showWave, setShowWave] = useState(false);
 
   // Haptic feedback ref
-  const lastHapticTime = useRef(0);
   const hapticInterval = useRef(null);
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -157,6 +159,41 @@ export default function App() {
       console.error('Location tracking error:', error);
     }
   };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // COMPASS / DEVICE MOTION
+  // ─────────────────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    let subscription;
+
+    const startCompass = async () => {
+      try {
+        DeviceMotion.setUpdateInterval(100); // Update every 100ms
+
+        subscription = DeviceMotion.addListener((data) => {
+          if (data.rotation) {
+            // Convert rotation to heading (0-360 degrees, 0 = North)
+            // rotation.alpha gives us the compass heading on iOS
+            // On Android, we might need to calculate differently
+            const alpha = data.rotation.alpha || 0;
+            const headingDegrees = (alpha * 180 / Math.PI) % 360;
+            setHeading(headingDegrees);
+          }
+        });
+      } catch (error) {
+        console.log('Compass not available:', error);
+      }
+    };
+
+    startCompass();
+
+    return () => {
+      if (subscription) {
+        subscription.remove();
+      }
+    };
+  }, []);
 
   // ─────────────────────────────────────────────────────────────────────────
   // TEST MODE: FAKE NEARBY USERS
@@ -531,60 +568,48 @@ export default function App() {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // GHOST MODE - LONG PRESS & SLIDE TO UNLOCK
+  // GHOST MODE - LONG PRESS WITH WAVE ANIMATION
   // ─────────────────────────────────────────────────────────────────────────
 
   const handleCenterDotLongPress = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    setShowSlideToUnlock(true);
+    // Trigger haptic feedback
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+    // Show wave animation
+    setShowWave(true);
+
+    // Start wave animations
+    waveAnim1.setValue(0);
+    waveAnim2.setValue(0);
+    waveAnim3.setValue(0);
+
+    Animated.parallel([
+      Animated.timing(waveAnim1, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true,
+      }),
+      Animated.timing(waveAnim2, {
+        toValue: 1,
+        duration: 1000,
+        delay: 150,
+        useNativeDriver: true,
+      }),
+      Animated.timing(waveAnim3, {
+        toValue: 1,
+        duration: 1000,
+        delay: 300,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setShowWave(false);
+    });
+
+    // Toggle ghost mode
+    setTimeout(() => {
+      setGhostMode(!ghostMode);
+    }, 200);
   };
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-        if (!showSlideToUnlock) return;
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      },
-      onPanResponderMove: (_, gestureState) => {
-        if (!showSlideToUnlock) return;
-        const slideWidth = SCREEN_WIDTH - 120;
-        const newPosition = Math.max(0, Math.min(gestureState.dx, slideWidth - 60));
-        slidePosition.setValue(newPosition);
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        if (!showSlideToUnlock) return;
-        const slideWidth = SCREEN_WIDTH - 120;
-        const threshold = slideWidth * 0.7;
-
-        if (gestureState.dx > threshold) {
-          // Success - toggle ghost mode
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          Animated.spring(slidePosition, {
-            toValue: slideWidth - 60,
-            useNativeDriver: false,
-            tension: 50,
-            friction: 7,
-          }).start(() => {
-            setTimeout(() => {
-              setGhostMode(!ghostMode);
-              setShowSlideToUnlock(false);
-              slidePosition.setValue(0);
-            }, 200);
-          });
-        } else {
-          // Cancel - slide back
-          Animated.spring(slidePosition, {
-            toValue: 0,
-            tension: 50,
-            friction: 7,
-            useNativeDriver: false,
-          }).start();
-        }
-      },
-    })
-  ).current;
 
   // ─────────────────────────────────────────────────────────────────────────
   // RADAR VISUALIZATION
@@ -649,92 +674,132 @@ export default function App() {
   // UI VIEWS
   // ─────────────────────────────────────────────────────────────────────────
 
-  const renderRadarView = () => (
-    <View style={styles.radarContainer}>
-      {/* Radar circles */}
-      <View style={[styles.radarCircle, { width: RADAR_SIZE, height: RADAR_SIZE }]}>
-        <View style={[styles.radarCircle, { width: RADAR_SIZE * 0.66, height: RADAR_SIZE * 0.66 }]}>
-          <View style={[styles.radarCircle, { width: RADAR_SIZE * 0.33, height: RADAR_SIZE * 0.33 }]} />
-        </View>
-      </View>
+  const renderRadarView = () => {
+    // Calculate radar rotation based on compass heading (counter-clockwise to compensate)
+    const radarCompassRotation = `-${heading}deg`;
 
-      {/* Radar sweep */}
-      <Animated.View
-        style={[
-          styles.radarSweep,
-          {
-            width: RADAR_SIZE,
-            height: RADAR_SIZE,
-            transform: [{ rotate: radarRotationDegrees }],
-          },
-        ]}
-      />
-
-      {/* Nearby users as dots */}
-      {renderRadarDots()}
-
-      {/* Center dot (user) - with long press */}
-      <TouchableOpacity
-        activeOpacity={0.8}
-        onLongPress={handleCenterDotLongPress}
-        delayLongPress={500}
-      >
+    return (
+      <View style={styles.radarContainer}>
+        {/* Radar wrapper with compass rotation */}
         <Animated.View
-          style={[
-            styles.centerDot,
-            {
-              transform: [{ scale: pulseAnim }],
-              backgroundColor: ghostMode ? '#666' : '#00ff88',
-              shadowColor: ghostMode ? '#666' : '#00ff88',
-            },
-          ]}
-        />
-      </TouchableOpacity>
+          style={{
+            transform: [{ rotate: radarCompassRotation }],
+          }}
+        >
+          {/* Radar circles */}
+          <View style={[styles.radarCircle, { width: RADAR_SIZE, height: RADAR_SIZE }]}>
+            <View style={[styles.radarCircle, { width: RADAR_SIZE * 0.66, height: RADAR_SIZE * 0.66 }]}>
+              <View style={[styles.radarCircle, { width: RADAR_SIZE * 0.33, height: RADAR_SIZE * 0.33 }]} />
+            </View>
+          </View>
 
-      {/* Compass */}
-      <View style={styles.compassContainer}>
-        <Text style={[styles.compassText, styles.compassN]}>N</Text>
-        <Text style={[styles.compassText, styles.compassE]}>E</Text>
-        <Text style={[styles.compassText, styles.compassS]}>S</Text>
-        <Text style={[styles.compassText, styles.compassW]}>O</Text>
-      </View>
+          {/* Radar sweep */}
+          <Animated.View
+            style={[
+              styles.radarSweep,
+              {
+                width: RADAR_SIZE,
+                height: RADAR_SIZE,
+                transform: [{ rotate: radarRotationDegrees }],
+              },
+            ]}
+          />
 
-      {/* Slide to unlock */}
-      {showSlideToUnlock && (
-        <View style={styles.slideToUnlockContainer}>
-          <View style={styles.slideTrack}>
-            <Text style={styles.slideText}>
-              {ghostMode ? 'Glisser pour devenir visible' : 'Glisser pour devenir invisible'}
-            </Text>
+          {/* Nearby users as dots */}
+          {renderRadarDots()}
+        </Animated.View>
+
+        {/* Center dot (user) - with long press - NOT rotated */}
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onLongPress={handleCenterDotLongPress}
+          delayLongPress={500}
+        >
+          <Animated.View
+            style={[
+              styles.centerDot,
+              {
+                transform: [{ scale: pulseAnim }],
+                backgroundColor: ghostMode ? '#999' : '#00ff88',
+                shadowColor: ghostMode ? '#999' : '#00ff88',
+              },
+            ]}
+          />
+        </TouchableOpacity>
+
+        {/* Wave animation circles */}
+        {showWave && (
+          <>
             <Animated.View
-              {...panResponder.panHandlers}
               style={[
-                styles.slideThumb,
+                styles.waveCircle,
                 {
-                  transform: [{ translateX: slidePosition }],
-                  backgroundColor: slidePosition.interpolate({
-                    inputRange: [0, SCREEN_WIDTH - 180],
-                    outputRange: ghostMode ? ['#666', '#00ff88'] : ['#00ff88', '#666'],
+                  transform: [
+                    {
+                      scale: waveAnim1.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 3],
+                      }),
+                    },
+                  ],
+                  opacity: waveAnim1.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.6, 0],
                   }),
-                  shadowColor: slidePosition.interpolate({
-                    inputRange: [0, SCREEN_WIDTH - 180],
-                    outputRange: ghostMode ? ['#666', '#00ff88'] : ['#00ff88', '#666'],
-                  }),
+                  borderColor: ghostMode ? '#00ff88' : '#999',
                 },
               ]}
-            >
-              <Text style={styles.slideThumbIcon}>{ghostMode ? '●' : '○'}</Text>
-            </Animated.View>
-          </View>
-        </View>
-      )}
+            />
+            <Animated.View
+              style={[
+                styles.waveCircle,
+                {
+                  transform: [
+                    {
+                      scale: waveAnim2.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 3],
+                      }),
+                    },
+                  ],
+                  opacity: waveAnim2.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.4, 0],
+                  }),
+                  borderColor: ghostMode ? '#00ff88' : '#999',
+                },
+              ]}
+            />
+            <Animated.View
+              style={[
+                styles.waveCircle,
+                {
+                  transform: [
+                    {
+                      scale: waveAnim3.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 3],
+                      }),
+                    },
+                  ],
+                  opacity: waveAnim3.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.2, 0],
+                  }),
+                  borderColor: ghostMode ? '#00ff88' : '#999',
+                },
+              ]}
+            />
+          </>
+        )}
 
-      {/* Status text */}
-      <Text style={styles.radarStatusText}>
-        {ghostMode ? '○ Mode Invisible' : `${nearbyUsers.length} présence${nearbyUsers.length > 1 ? 's' : ''} détectée${nearbyUsers.length > 1 ? 's' : ''}`}
-      </Text>
-    </View>
-  );
+        {/* Status text */}
+        <Text style={styles.radarStatusText}>
+          {ghostMode ? '○ Mode Invisible' : `${nearbyUsers.length} présence${nearbyUsers.length > 1 ? 's' : ''} détectée${nearbyUsers.length > 1 ? 's' : ''}`}
+        </Text>
+      </View>
+    );
+  };
 
   const renderCrossingsView = () => (
     <ScrollView style={styles.listContainer}>
@@ -964,7 +1029,12 @@ export default function App() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.logo}>Gaydar</Text>
-        <Text style={styles.headerHint}>Appui long sur le centre</Text>
+        <Text style={[
+          styles.headerStatus,
+          { color: ghostMode ? '#999' : '#00ff88' }
+        ]}>
+          {ghostMode ? '○ Invisible' : '● Visible'}
+        </Text>
       </View>
 
       {/* Main Content */}
@@ -1103,10 +1173,9 @@ const styles = StyleSheet.create({
     color: '#fff',
     letterSpacing: 1,
   },
-  headerHint: {
-    fontSize: 11,
-    color: '#666',
-    fontStyle: 'italic',
+  headerStatus: {
+    fontSize: 13,
+    fontWeight: '600',
   },
 
   // ─── Content ───
@@ -1156,6 +1225,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 1,
     shadowRadius: 15,
     elevation: 10,
+  },
+  waveCircle: {
+    position: 'absolute',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+    backgroundColor: 'transparent',
   },
   radarStatusText: {
     position: 'absolute',
@@ -1422,87 +1499,5 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#fff',
-  },
-
-  // ─── Compass ───
-  compassContainer: {
-    position: 'absolute',
-    width: RADAR_SIZE,
-    height: RADAR_SIZE,
-  },
-  compassText: {
-    position: 'absolute',
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#00ff88',
-    textShadowColor: '#00ff88',
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 10,
-  },
-  compassN: {
-    top: 10,
-    left: '50%',
-    marginLeft: -8,
-  },
-  compassE: {
-    right: 10,
-    top: '50%',
-    marginTop: -10,
-  },
-  compassS: {
-    bottom: 10,
-    left: '50%',
-    marginLeft: -8,
-  },
-  compassW: {
-    left: 10,
-    top: '50%',
-    marginTop: -10,
-  },
-
-  // ─── Slide to Unlock ───
-  slideToUnlockContainer: {
-    position: 'absolute',
-    bottom: 120,
-    width: SCREEN_WIDTH - 60,
-    alignItems: 'center',
-  },
-  slideTrack: {
-    width: '100%',
-    height: 60,
-    backgroundColor: '#1a1a1a',
-    borderRadius: 30,
-    borderWidth: 2,
-    borderColor: '#333',
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'relative',
-  },
-  slideText: {
-    fontSize: 13,
-    color: '#999',
-    fontWeight: '600',
-    textAlign: 'center',
-    paddingHorizontal: 70,
-  },
-  slideThumb: {
-    position: 'absolute',
-    left: 5,
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#00ff88',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#00ff88',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 10,
-    elevation: 5,
-  },
-  slideThumbIcon: {
-    fontSize: 24,
-    color: '#0a0a0a',
-    fontWeight: '700',
   },
 });
