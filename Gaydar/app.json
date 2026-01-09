@@ -1,0 +1,52 @@
+{
+  "expo": {
+    "name": "Gaydar",
+    "slug": "gaydar",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0a0a0a"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.gaydar.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Gaydar utilise votre localisation pour détecter les présences à proximité de manière anonyme.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Gaydar utilise votre localisation en arrière-plan pour vous alerter par vibrations quand quelqu'un est proche.",
+        "UIBackgroundModes": ["location"]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0a0a0a"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.gaydar.app",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "VIBRATE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Gaydar utilise votre localisation pour détecter les présences à proximité de manière anonyme.",
+          "locationAlwaysPermission": "Gaydar utilise votre localisation en arrière-plan pour vous alerter par vibrations quand quelqu'un est proche.",
+          "locationWhenInUsePermission": "Gaydar utilise votre localisation pour détecter les présences à proximité de manière anonyme."
+        }
+      ]
+    ]
+  }
+}
