@@ -53,6 +53,9 @@ export default function App() {
   const [testMode, setTestMode] = useState(false);
   const [nearbyUsers, setNearbyUsers] = useState([]);
 
+  // Radar sweep angle for fade effect
+  const [radarSweepAngle, setRadarSweepAngle] = useState(0);
+
   // Crossings (encounters)
   const [crossings, setCrossings] = useState([]);
 
@@ -174,6 +177,9 @@ export default function App() {
       return () => clearInterval(interval);
     } else {
       setNearbyUsers([]);
+      // Clear test crossings and messages when disabling test mode
+      setCrossings(prev => prev.filter(c => !c.userId.startsWith('test-user-')));
+      setMessages({});
     }
   }, [testMode, location]);
 
@@ -486,35 +492,37 @@ export default function App() {
   // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    // Start animations immediately and keep them running
-    const startAnimations = () => {
-      // Pulse animation for center dot
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.3,
-            duration: 1500,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 1500,
-            useNativeDriver: true,
-          }),
-        ])
-      ).start();
-
-      // Radar sweep rotation
-      Animated.loop(
-        Animated.timing(radarRotation, {
-          toValue: 1,
-          duration: 8000,
+    // Pulse animation for center dot
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.3,
+          duration: 1500,
           useNativeDriver: true,
-        })
-      ).start();
-    };
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1500,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
 
-    startAnimations();
+    // Radar sweep rotation - continuous
+    Animated.loop(
+      Animated.timing(radarRotation, {
+        toValue: 1,
+        duration: 4000,
+        useNativeDriver: true,
+      })
+    ).start();
+
+    // Update sweep angle for fade effect
+    const sweepInterval = setInterval(() => {
+      setRadarSweepAngle(prev => (prev + 2) % 360);
+    }, 30);
+
+    return () => clearInterval(sweepInterval);
   }, []);
 
   const radarRotationDegrees = radarRotation.interpolate({
@@ -533,8 +541,12 @@ export default function App() {
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => showSlideToUnlock,
-      onMoveShouldSetPanResponder: () => showSlideToUnlock,
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        if (!showSlideToUnlock) return;
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      },
       onPanResponderMove: (_, gestureState) => {
         if (!showSlideToUnlock) return;
         const slideWidth = SCREEN_WIDTH - 120;
@@ -548,21 +560,24 @@ export default function App() {
 
         if (gestureState.dx > threshold) {
           // Success - toggle ghost mode
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           Animated.spring(slidePosition, {
             toValue: slideWidth - 60,
             useNativeDriver: false,
+            tension: 50,
+            friction: 7,
           }).start(() => {
-            setGhostMode(!ghostMode);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setTimeout(() => {
+              setGhostMode(!ghostMode);
               setShowSlideToUnlock(false);
               slidePosition.setValue(0);
-            }, 300);
+            }, 200);
           });
         } else {
           // Cancel - slide back
           Animated.spring(slidePosition, {
             toValue: 0,
+            tension: 50,
             friction: 7,
             useNativeDriver: false,
           }).start();
@@ -599,9 +614,17 @@ export default function App() {
       const x = Math.cos(angleRad) * radius;
       const y = Math.sin(angleRad) * radius;
 
+      // Calculate angle difference for fade effect (classic radar sweep)
+      let angleDiff = Math.abs(radarSweepAngle - angle);
+      if (angleDiff > 180) angleDiff = 360 - angleDiff;
+
+      // Fade trail: bright when swept, fades over 90 degrees
+      const fadeOpacity = Math.max(0, 1 - angleDiff / 90);
+
       // Size and intensity based on distance (closer = larger/brighter)
       const dotSize = 15 - normalizedDistance * 8;
-      const opacity = 1 - normalizedDistance * 0.5;
+      const baseOpacity = 1 - normalizedDistance * 0.5;
+      const finalOpacity = baseOpacity * (0.1 + fadeOpacity * 0.9); // 10% ambient + 90% sweep
 
       return (
         <Animated.View
@@ -613,7 +636,7 @@ export default function App() {
               top: RADAR_SIZE / 2 + y - dotSize / 2,
               width: dotSize,
               height: dotSize,
-              opacity,
+              opacity: finalOpacity,
               backgroundColor: distance < 50 ? '#00ff88' : '#00ccff',
             },
           ]}
@@ -668,6 +691,14 @@ export default function App() {
         />
       </TouchableOpacity>
 
+      {/* Compass */}
+      <View style={styles.compassContainer}>
+        <Text style={[styles.compassText, styles.compassN]}>N</Text>
+        <Text style={[styles.compassText, styles.compassE]}>E</Text>
+        <Text style={[styles.compassText, styles.compassS]}>S</Text>
+        <Text style={[styles.compassText, styles.compassW]}>O</Text>
+      </View>
+
       {/* Slide to unlock */}
       {showSlideToUnlock && (
         <View style={styles.slideToUnlockContainer}>
@@ -681,6 +712,14 @@ export default function App() {
                 styles.slideThumb,
                 {
                   transform: [{ translateX: slidePosition }],
+                  backgroundColor: slidePosition.interpolate({
+                    inputRange: [0, SCREEN_WIDTH - 180],
+                    outputRange: ghostMode ? ['#666', '#00ff88'] : ['#00ff88', '#666'],
+                  }),
+                  shadowColor: slidePosition.interpolate({
+                    inputRange: [0, SCREEN_WIDTH - 180],
+                    outputRange: ghostMode ? ['#666', '#00ff88'] : ['#00ff88', '#666'],
+                  }),
                 },
               ]}
             >
@@ -1383,6 +1422,42 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#fff',
+  },
+
+  // ─── Compass ───
+  compassContainer: {
+    position: 'absolute',
+    width: RADAR_SIZE,
+    height: RADAR_SIZE,
+  },
+  compassText: {
+    position: 'absolute',
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#00ff88',
+    textShadowColor: '#00ff88',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 10,
+  },
+  compassN: {
+    top: 10,
+    left: '50%',
+    marginLeft: -8,
+  },
+  compassE: {
+    right: 10,
+    top: '50%',
+    marginTop: -10,
+  },
+  compassS: {
+    bottom: 10,
+    left: '50%',
+    marginLeft: -8,
+  },
+  compassW: {
+    left: 10,
+    top: '50%',
+    marginTop: -10,
   },
 
   // ─── Slide to Unlock ───
