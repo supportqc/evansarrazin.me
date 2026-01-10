@@ -76,8 +76,12 @@ export default function App() {
   const waveAnim3 = useRef(new Animated.Value(0)).current;
   const [showWave, setShowWave] = useState(false);
 
-  // Haptic feedback ref
+  // Haptic feedback refs
   const hapticInterval = useRef(null);
+  const directionalHapticInterval = useRef(null);
+
+  // Animation intervals
+  const sweepIntervalRef = useRef(null);
 
   // ─────────────────────────────────────────────────────────────────────────
   // LOCATION & PERMISSIONS
@@ -303,8 +307,105 @@ export default function App() {
     return R * c; // Distance in meters
   };
 
+  // Calculate bearing/angle from point A to point B
+  const calculateBearing = (lat1, lon1, lat2, lon2) => {
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+    const y = Math.sin(Δλ) * Math.cos(φ2);
+    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    const θ = Math.atan2(y, x);
+    const bearing = ((θ * 180 / Math.PI) + 360) % 360; // in degrees
+
+    return bearing;
+  };
+
   // ─────────────────────────────────────────────────────────────────────────
-  // HAPTIC FEEDBACK BASED ON DISTANCE
+  // DIRECTIONAL HAPTIC FEEDBACK (when phone points at user)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!location || nearbyUsers.length === 0 || ghostMode) {
+      if (directionalHapticInterval.current) {
+        clearInterval(directionalHapticInterval.current);
+        directionalHapticInterval.current = null;
+      }
+      return;
+    }
+
+    // Check every 500ms
+    const checkDirectionalHaptic = () => {
+      // Find users in the direction phone is pointing (within 30 degree cone)
+      const usersInDirection = nearbyUsers.filter(user => {
+        const bearing = calculateBearing(
+          location.latitude,
+          location.longitude,
+          user.latitude,
+          user.longitude
+        );
+
+        // Calculate angle difference between phone heading and user bearing
+        let angleDiff = Math.abs(heading - bearing);
+        if (angleDiff > 180) angleDiff = 360 - angleDiff;
+
+        // Within 30 degree cone
+        return angleDiff < 30;
+      });
+
+      if (usersInDirection.length > 0) {
+        // Find closest user in direction
+        let closestInDirection = usersInDirection[0];
+        let minDistance = calculateDistance(
+          location.latitude,
+          location.longitude,
+          closestInDirection.latitude,
+          closestInDirection.longitude
+        );
+
+        usersInDirection.forEach(user => {
+          const dist = calculateDistance(
+            location.latitude,
+            location.longitude,
+            user.latitude,
+            user.longitude
+          );
+          if (dist < minDistance) {
+            minDistance = dist;
+            closestInDirection = user;
+          }
+        });
+
+        // Trigger haptic based on distance (closer = stronger)
+        let impactStyle = Haptics.ImpactFeedbackStyle.Light;
+
+        if (minDistance < 20) {
+          impactStyle = Haptics.ImpactFeedbackStyle.Heavy;
+        } else if (minDistance < 50) {
+          impactStyle = Haptics.ImpactFeedbackStyle.Medium;
+        } else if (minDistance < 100) {
+          impactStyle = Haptics.ImpactFeedbackStyle.Light;
+        }
+
+        Haptics.impactAsync(impactStyle);
+      }
+    };
+
+    // Run check immediately
+    checkDirectionalHaptic();
+
+    // Set up interval
+    directionalHapticInterval.current = setInterval(checkDirectionalHaptic, 500);
+
+    return () => {
+      if (directionalHapticInterval.current) {
+        clearInterval(directionalHapticInterval.current);
+      }
+    };
+  }, [location, nearbyUsers, ghostMode, heading]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // HAPTIC FEEDBACK BASED ON DISTANCE (general proximity)
   // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -554,12 +655,20 @@ export default function App() {
       })
     ).start();
 
-    // Update sweep angle for fade effect
-    const sweepInterval = setInterval(() => {
+    // Update sweep angle for fade effect - use ref to persist across view changes
+    if (sweepIntervalRef.current) {
+      clearInterval(sweepIntervalRef.current);
+    }
+
+    sweepIntervalRef.current = setInterval(() => {
       setRadarSweepAngle(prev => (prev + 2) % 360);
     }, 30);
 
-    return () => clearInterval(sweepInterval);
+    return () => {
+      if (sweepIntervalRef.current) {
+        clearInterval(sweepIntervalRef.current);
+      }
+    };
   }, []);
 
   const radarRotationDegrees = radarRotation.interpolate({
@@ -572,43 +681,66 @@ export default function App() {
   // ─────────────────────────────────────────────────────────────────────────
 
   const handleCenterDotLongPress = () => {
-    // Trigger haptic feedback
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    // Immediate haptic feedback at start
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    // Show wave animation
+    // Show wave animation immediately
     setShowWave(true);
 
-    // Start wave animations
-    waveAnim1.setValue(0);
-    waveAnim2.setValue(0);
-    waveAnim3.setValue(0);
+    // Start wave animations (reverse direction - shrink first then expand)
+    waveAnim1.setValue(1);
+    waveAnim2.setValue(1);
+    waveAnim3.setValue(1);
 
-    Animated.parallel([
-      Animated.timing(waveAnim1, {
-        toValue: 1,
-        duration: 1000,
-        useNativeDriver: true,
-      }),
-      Animated.timing(waveAnim2, {
-        toValue: 1,
-        duration: 1000,
-        delay: 150,
-        useNativeDriver: true,
-      }),
-      Animated.timing(waveAnim3, {
-        toValue: 1,
-        duration: 1000,
-        delay: 300,
-        useNativeDriver: true,
-      }),
+    // Shrink then expand
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(waveAnim1, {
+          toValue: 0.5,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(waveAnim2, {
+          toValue: 0.5,
+          duration: 200,
+          delay: 50,
+          useNativeDriver: true,
+        }),
+        Animated.timing(waveAnim3, {
+          toValue: 0.5,
+          duration: 200,
+          delay: 100,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.parallel([
+        Animated.timing(waveAnim1, {
+          toValue: 6,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(waveAnim2, {
+          toValue: 6,
+          duration: 800,
+          delay: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(waveAnim3, {
+          toValue: 6,
+          duration: 800,
+          delay: 200,
+          useNativeDriver: true,
+        }),
+      ]),
     ]).start(() => {
       setShowWave(false);
     });
 
-    // Toggle ghost mode
+    // Final haptic on toggle
     setTimeout(() => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setGhostMode(!ghostMode);
-    }, 200);
+    }, 300);
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -681,117 +813,108 @@ export default function App() {
     return (
       <View style={styles.radarContainer}>
         {/* Radar wrapper with compass rotation */}
-        <Animated.View
-          style={{
-            transform: [{ rotate: radarCompassRotation }],
-          }}
-        >
-          {/* Radar circles */}
-          <View style={[styles.radarCircle, { width: RADAR_SIZE, height: RADAR_SIZE }]}>
-            <View style={[styles.radarCircle, { width: RADAR_SIZE * 0.66, height: RADAR_SIZE * 0.66 }]}>
-              <View style={[styles.radarCircle, { width: RADAR_SIZE * 0.33, height: RADAR_SIZE * 0.33 }]} />
+        <View style={styles.radarWrapper}>
+          <Animated.View
+            style={[
+              styles.radarRotatingContent,
+              {
+                transform: [{ rotate: radarCompassRotation }],
+              },
+            ]}
+          >
+            {/* Radar circles */}
+            <View style={[styles.radarCircle, { width: RADAR_SIZE, height: RADAR_SIZE }]}>
+              <View style={[styles.radarCircle, { width: RADAR_SIZE * 0.66, height: RADAR_SIZE * 0.66 }]}>
+                <View style={[styles.radarCircle, { width: RADAR_SIZE * 0.33, height: RADAR_SIZE * 0.33 }]} />
+              </View>
             </View>
-          </View>
 
-          {/* Radar sweep */}
-          <Animated.View
-            style={[
-              styles.radarSweep,
-              {
-                width: RADAR_SIZE,
-                height: RADAR_SIZE,
-                transform: [{ rotate: radarRotationDegrees }],
-              },
-            ]}
-          />
-
-          {/* Nearby users as dots */}
-          {renderRadarDots()}
-        </Animated.View>
-
-        {/* Center dot (user) - with long press - NOT rotated */}
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onLongPress={handleCenterDotLongPress}
-          delayLongPress={500}
-        >
-          <Animated.View
-            style={[
-              styles.centerDot,
-              {
-                transform: [{ scale: pulseAnim }],
-                backgroundColor: ghostMode ? '#999' : '#00ff88',
-                shadowColor: ghostMode ? '#999' : '#00ff88',
-              },
-            ]}
-          />
-        </TouchableOpacity>
-
-        {/* Wave animation circles */}
-        {showWave && (
-          <>
+            {/* Radar sweep */}
             <Animated.View
               style={[
-                styles.waveCircle,
+                styles.radarSweep,
                 {
-                  transform: [
-                    {
-                      scale: waveAnim1.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 3],
-                      }),
-                    },
-                  ],
-                  opacity: waveAnim1.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.6, 0],
-                  }),
-                  borderColor: ghostMode ? '#00ff88' : '#999',
+                  width: RADAR_SIZE,
+                  height: RADAR_SIZE,
+                  transform: [{ rotate: radarRotationDegrees }],
                 },
               ]}
             />
+
+            {/* Nearby users as dots */}
+            {renderRadarDots()}
+
+            {/* V-shaped beam indicator (top of phone direction) */}
+            <View style={styles.beamContainer}>
+              <View style={styles.beamLeft} />
+              <View style={styles.beamRight} />
+            </View>
+          </Animated.View>
+
+          {/* Center dot (user) - with long press - NOT rotated */}
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onLongPress={handleCenterDotLongPress}
+            delayLongPress={500}
+            style={styles.centerDotTouchable}
+          >
             <Animated.View
               style={[
-                styles.waveCircle,
+                styles.centerDot,
                 {
-                  transform: [
-                    {
-                      scale: waveAnim2.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 3],
-                      }),
-                    },
-                  ],
-                  opacity: waveAnim2.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.4, 0],
-                  }),
-                  borderColor: ghostMode ? '#00ff88' : '#999',
+                  transform: [{ scale: pulseAnim }],
+                  backgroundColor: ghostMode ? '#999' : '#00ff88',
+                  shadowColor: ghostMode ? '#999' : '#00ff88',
                 },
               ]}
             />
-            <Animated.View
-              style={[
-                styles.waveCircle,
-                {
-                  transform: [
-                    {
-                      scale: waveAnim3.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 3],
-                      }),
-                    },
-                  ],
-                  opacity: waveAnim3.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.2, 0],
-                  }),
-                  borderColor: ghostMode ? '#00ff88' : '#999',
-                },
-              ]}
-            />
-          </>
-        )}
+          </TouchableOpacity>
+
+          {/* Wave animation circles */}
+          {showWave && (
+            <>
+              <Animated.View
+                style={[
+                  styles.waveCircle,
+                  {
+                    transform: [{ scale: waveAnim1 }],
+                    opacity: waveAnim1.interpolate({
+                      inputRange: [0.5, 1, 6],
+                      outputRange: [0.8, 0.6, 0],
+                    }),
+                    borderColor: ghostMode ? '#00ff88' : '#999',
+                  },
+                ]}
+              />
+              <Animated.View
+                style={[
+                  styles.waveCircle,
+                  {
+                    transform: [{ scale: waveAnim2 }],
+                    opacity: waveAnim2.interpolate({
+                      inputRange: [0.5, 1, 6],
+                      outputRange: [0.6, 0.4, 0],
+                    }),
+                    borderColor: ghostMode ? '#00ff88' : '#999',
+                  },
+                ]}
+              />
+              <Animated.View
+                style={[
+                  styles.waveCircle,
+                  {
+                    transform: [{ scale: waveAnim3 }],
+                    opacity: waveAnim3.interpolate({
+                      inputRange: [0.5, 1, 6],
+                      outputRange: [0.4, 0.2, 0],
+                    }),
+                    borderColor: ghostMode ? '#00ff88' : '#999',
+                  },
+                ]}
+              />
+            </>
+          )}
+        </View>
 
         {/* Status text */}
         <Text style={styles.radarStatusText}>
@@ -1190,6 +1313,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     position: 'relative',
   },
+  radarWrapper: {
+    width: RADAR_SIZE,
+    height: RADAR_SIZE,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  radarRotatingContent: {
+    width: RADAR_SIZE,
+    height: RADAR_SIZE,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'absolute',
+  },
   radarCircle: {
     position: 'absolute',
     borderWidth: 1,
@@ -1215,6 +1352,10 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
+  centerDotTouchable: {
+    position: 'absolute',
+    zIndex: 10,
+  },
   centerDot: {
     width: 20,
     height: 20,
@@ -1231,8 +1372,37 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    borderWidth: 2,
+    borderWidth: 3,
     backgroundColor: 'transparent',
+  },
+  // V-shaped beam
+  beamContainer: {
+    position: 'absolute',
+    top: 0,
+    width: RADAR_SIZE,
+    height: RADAR_SIZE / 2,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  beamLeft: {
+    position: 'absolute',
+    top: 0,
+    left: RADAR_SIZE / 2 - 1,
+    width: 2,
+    height: RADAR_SIZE / 2,
+    backgroundColor: 'rgba(0, 255, 136, 0.4)',
+    transform: [{ rotate: '-15deg' }, { translateX: -RADAR_SIZE / 8 }],
+    transformOrigin: 'top center',
+  },
+  beamRight: {
+    position: 'absolute',
+    top: 0,
+    right: RADAR_SIZE / 2 - 1,
+    width: 2,
+    height: RADAR_SIZE / 2,
+    backgroundColor: 'rgba(0, 255, 136, 0.4)',
+    transform: [{ rotate: '15deg' }, { translateX: RADAR_SIZE / 8 }],
+    transformOrigin: 'top center',
   },
   radarStatusText: {
     position: 'absolute',
