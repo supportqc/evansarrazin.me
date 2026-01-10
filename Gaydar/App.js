@@ -648,12 +648,14 @@ export default function App() {
       ])
     ).start();
 
-    // Radar sweep rotation - continuous - store ref
+    // Radar sweep rotation - continuous loop with reset
+    radarRotation.setValue(0);
     radarAnimRef.current = Animated.loop(
       Animated.timing(radarRotation, {
         toValue: 1,
         duration: 4000,
         useNativeDriver: true,
+        isInteraction: false,
       })
     );
     radarAnimRef.current.start();
@@ -851,8 +853,12 @@ export default function App() {
 
           {/* V-shaped beam indicator - FIXED at top, doesn't rotate */}
           <View style={styles.beamContainer}>
-            <View style={styles.beamLeft} />
-            <View style={styles.beamRight} />
+            <View style={styles.beamLeft}>
+              <View style={styles.beamTriangleLeft} />
+            </View>
+            <View style={styles.beamRight}>
+              <View style={styles.beamTriangleRight} />
+            </View>
           </View>
 
           {/* Center dot (user) - with long press - NOT rotated */}
@@ -1387,33 +1393,46 @@ const styles = StyleSheet.create({
     height: RADAR_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'flex-start',
-    overflow: 'hidden',
   },
   beamLeft: {
     position: 'absolute',
     top: 0,
-    left: RADAR_SIZE / 2,
-    width: RADAR_SIZE / 4,
+    left: RADAR_SIZE / 2 - RADAR_SIZE / 8,
+    width: RADAR_SIZE / 8,
     height: RADAR_SIZE / 2,
-    backgroundColor: 'rgba(0, 255, 136, 0.15)',
-    transform: [{ translateX: -RADAR_SIZE / 8 }, { skewX: '-15deg' }],
-    shadowColor: '#00ff88',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
+    overflow: 'hidden',
+  },
+  beamTriangleLeft: {
+    width: 0,
+    height: 0,
+    backgroundColor: 'transparent',
+    borderStyle: 'solid',
+    borderLeftWidth: RADAR_SIZE / 8,
+    borderRightWidth: 0,
+    borderBottomWidth: RADAR_SIZE / 2,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: 'rgba(0, 255, 136, 0.2)',
   },
   beamRight: {
     position: 'absolute',
     top: 0,
-    right: RADAR_SIZE / 2,
-    width: RADAR_SIZE / 4,
+    right: RADAR_SIZE / 2 - RADAR_SIZE / 8,
+    width: RADAR_SIZE / 8,
     height: RADAR_SIZE / 2,
-    backgroundColor: 'rgba(0, 255, 136, 0.15)',
-    transform: [{ translateX: RADAR_SIZE / 8 }, { skewX: '15deg' }],
-    shadowColor: '#00ff88',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
+    overflow: 'hidden',
+  },
+  beamTriangleRight: {
+    width: 0,
+    height: 0,
+    backgroundColor: 'transparent',
+    borderStyle: 'solid',
+    borderLeftWidth: 0,
+    borderRightWidth: RADAR_SIZE / 8,
+    borderBottomWidth: RADAR_SIZE / 2,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: 'rgba(0, 255, 136, 0.2)',
   },
   radarStatusText: {
     position: 'absolute',
