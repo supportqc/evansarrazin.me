@@ -17,6 +17,7 @@ import {
 import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
 import { DeviceMotion } from 'expo-sensors';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const RADAR_SIZE = Math.min(SCREEN_WIDTH, SCREEN_HEIGHT) * 0.7;
@@ -82,6 +83,7 @@ export default function App() {
 
   // Animation intervals
   const sweepIntervalRef = useRef(null);
+  const radarAnimRef = useRef(null);
 
   // ─────────────────────────────────────────────────────────────────────────
   // LOCATION & PERMISSIONS
@@ -646,14 +648,15 @@ export default function App() {
       ])
     ).start();
 
-    // Radar sweep rotation - continuous
-    Animated.loop(
+    // Radar sweep rotation - continuous - store ref
+    radarAnimRef.current = Animated.loop(
       Animated.timing(radarRotation, {
         toValue: 1,
         duration: 4000,
         useNativeDriver: true,
       })
-    ).start();
+    );
+    radarAnimRef.current.start();
 
     // Update sweep angle for fade effect - use ref to persist across view changes
     if (sweepIntervalRef.current) {
@@ -667,6 +670,9 @@ export default function App() {
     return () => {
       if (sweepIntervalRef.current) {
         clearInterval(sweepIntervalRef.current);
+      }
+      if (radarAnimRef.current) {
+        radarAnimRef.current.stop();
       }
     };
   }, []);
@@ -758,21 +764,28 @@ export default function App() {
         user.longitude
       );
 
-      // Map distance to radar position (abstract, not accurate)
+      const bearing = calculateBearing(
+        location.latitude,
+        location.longitude,
+        user.latitude,
+        user.longitude
+      );
+
+      // Calculate relative angle (bearing - heading)
+      const relativeAngle = (bearing - heading + 360) % 360;
+      const angleRad = (relativeAngle * Math.PI) / 180;
+
+      // Map distance to radar position
       const maxDistance = 200; // meters
       const normalizedDistance = Math.min(distance / maxDistance, 1);
 
-      // Random angle for abstract positioning
-      const angle = (index * 137.5) % 360; // Golden angle for distribution
-      const angleRad = (angle * Math.PI) / 180;
-
       // Position on radar (0 = center, RADAR_SIZE/2 = edge)
       const radius = normalizedDistance * (RADAR_SIZE / 2 - 30);
-      const x = Math.cos(angleRad) * radius;
-      const y = Math.sin(angleRad) * radius;
+      const x = Math.sin(angleRad) * radius;
+      const y = -Math.cos(angleRad) * radius;
 
       // Calculate angle difference for fade effect (classic radar sweep)
-      let angleDiff = Math.abs(radarSweepAngle - angle);
+      let angleDiff = Math.abs(radarSweepAngle - relativeAngle);
       if (angleDiff > 180) angleDiff = 360 - angleDiff;
 
       // Fade trail: bright when swept, fades over 90 degrees
@@ -807,21 +820,12 @@ export default function App() {
   // ─────────────────────────────────────────────────────────────────────────
 
   const renderRadarView = () => {
-    // Calculate radar rotation based on compass heading (counter-clockwise to compensate)
-    const radarCompassRotation = `-${heading}deg`;
-
     return (
       <View style={styles.radarContainer}>
-        {/* Radar wrapper with compass rotation */}
+        {/* Radar wrapper */}
         <View style={styles.radarWrapper}>
-          <Animated.View
-            style={[
-              styles.radarRotatingContent,
-              {
-                transform: [{ rotate: radarCompassRotation }],
-              },
-            ]}
-          >
+          {/* Radar circles and sweep (static - don't rotate) */}
+          <View style={styles.radarStaticContent}>
             {/* Radar circles */}
             <View style={[styles.radarCircle, { width: RADAR_SIZE, height: RADAR_SIZE }]}>
               <View style={[styles.radarCircle, { width: RADAR_SIZE * 0.66, height: RADAR_SIZE * 0.66 }]}>
@@ -829,7 +833,7 @@ export default function App() {
               </View>
             </View>
 
-            {/* Radar sweep */}
+            {/* Radar sweep - rotating */}
             <Animated.View
               style={[
                 styles.radarSweep,
@@ -841,15 +845,15 @@ export default function App() {
               ]}
             />
 
-            {/* Nearby users as dots */}
+            {/* Nearby users as dots - positions calculated based on bearing */}
             {renderRadarDots()}
+          </View>
 
-            {/* V-shaped beam indicator (top of phone direction) */}
-            <View style={styles.beamContainer}>
-              <View style={styles.beamLeft} />
-              <View style={styles.beamRight} />
-            </View>
-          </Animated.View>
+          {/* V-shaped beam indicator - FIXED at top, doesn't rotate */}
+          <View style={styles.beamContainer}>
+            <View style={styles.beamLeft} />
+            <View style={styles.beamRight} />
+          </View>
 
           {/* Center dot (user) - with long press - NOT rotated */}
           <TouchableOpacity
@@ -1320,7 +1324,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     position: 'relative',
   },
-  radarRotatingContent: {
+  radarStaticContent: {
     width: RADAR_SIZE,
     height: RADAR_SIZE,
     justifyContent: 'center',
@@ -1375,7 +1379,7 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     backgroundColor: 'transparent',
   },
-  // V-shaped beam
+  // V-shaped beam - FIXED at top
   beamContainer: {
     position: 'absolute',
     top: 0,
@@ -1383,26 +1387,33 @@ const styles = StyleSheet.create({
     height: RADAR_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'flex-start',
+    overflow: 'hidden',
   },
   beamLeft: {
     position: 'absolute',
     top: 0,
-    left: RADAR_SIZE / 2 - 1,
-    width: 2,
+    left: RADAR_SIZE / 2,
+    width: RADAR_SIZE / 4,
     height: RADAR_SIZE / 2,
-    backgroundColor: 'rgba(0, 255, 136, 0.4)',
-    transform: [{ rotate: '-15deg' }, { translateX: -RADAR_SIZE / 8 }],
-    transformOrigin: 'top center',
+    backgroundColor: 'rgba(0, 255, 136, 0.15)',
+    transform: [{ translateX: -RADAR_SIZE / 8 }, { skewX: '-15deg' }],
+    shadowColor: '#00ff88',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
   },
   beamRight: {
     position: 'absolute',
     top: 0,
-    right: RADAR_SIZE / 2 - 1,
-    width: 2,
+    right: RADAR_SIZE / 2,
+    width: RADAR_SIZE / 4,
     height: RADAR_SIZE / 2,
-    backgroundColor: 'rgba(0, 255, 136, 0.4)',
-    transform: [{ rotate: '15deg' }, { translateX: RADAR_SIZE / 8 }],
-    transformOrigin: 'top center',
+    backgroundColor: 'rgba(0, 255, 136, 0.15)',
+    transform: [{ translateX: RADAR_SIZE / 8 }, { skewX: '15deg' }],
+    shadowColor: '#00ff88',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
   },
   radarStatusText: {
     position: 'absolute',
