@@ -1408,12 +1408,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   // V-shaped beam - FIXED at top
-beamContainer: {
+beamWrapper: {
   position: 'absolute',
   top: 0,
   width: RADAR_SIZE,
   height: RADAR_SIZE / 2,
-  alignItems: 'center',
+  alignItems: 'centers',
   justifyContent: 'flex-start',
   transform: [{ rotate: '180deg' }],
 },
