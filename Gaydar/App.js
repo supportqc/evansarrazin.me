@@ -19,7 +19,7 @@ import * as Haptics from 'expo-haptics';
 import { DeviceMotion } from 'expo-sensors';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const RADAR_SIZE = Math.min(SCREEN_WIDTH, SCREEN_HEIGHT) * 0.7;
+const RADAR_SIZE = Math.min(SCREEN_WIDTH, SCREEN_HEIGHT) * 0.75; // Increased from 0.7
 
 // ═══════════════════════════════════════════════════════════════════════════
 // GAYDAR - Proximity-based abstract social app
@@ -92,6 +92,12 @@ export default function App() {
   const pressCircle2 = useRef(new Animated.Value(0)).current;
   const [showPressAnimation, setShowPressAnimation] = useState(false);
   const pressTimeoutRef = useRef(null);
+
+  // Pin animation (for user pinning)
+  const pinWaveAnim1 = useRef(new Animated.Value(0)).current;
+  const pinWaveAnim2 = useRef(new Animated.Value(0)).current;
+  const [showPinWave, setShowPinWave] = useState(false);
+  const [pinWavePosition, setPinWavePosition] = useState({ x: 0, y: 0 });
 
   // Haptic feedback refs
   const hapticInterval = useRef(null);
@@ -410,7 +416,7 @@ export default function App() {
   // USER PINNING/TRACKING
   // ─────────────────────────────────────────────────────────────────────────
 
-  const togglePinUser = (userId) => {
+  const togglePinUser = (userId, x, y) => {
     if (pinnedUsers.includes(userId)) {
       // Unpin
       setPinnedUsers(prev => prev.filter(id => id !== userId));
@@ -426,25 +432,45 @@ export default function App() {
         return;
       }
 
-      Alert.alert(
-        'Traçage temporaire',
-        'Cette fonctionnalité intensifie les vibrations pour cet utilisateur. Aucun tracking permanent.',
-        [
-          { text: 'Annuler', style: 'cancel' },
-          {
-            text: 'Épingler',
-            onPress: () => {
-              setPinnedUsers(prev => [...prev, userId]);
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            },
-          },
-        ]
-      );
+      // Show pin wave animation at position
+      setPinWavePosition({ x, y });
+      setShowPinWave(true);
+
+      // Subtle haptic feedback
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+      // Start pin wave animation
+      pinWaveAnim1.setValue(1);
+      pinWaveAnim2.setValue(1);
+
+      Animated.parallel([
+        Animated.timing(pinWaveAnim1, {
+          toValue: 3,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pinWaveAnim2, {
+          toValue: 3,
+          duration: 600,
+          delay: 100,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        setShowPinWave(false);
+      });
+
+      // Pin the user
+      setPinnedUsers(prev => [...prev, userId]);
+
+      // Success haptic after animation starts
+      setTimeout(() => {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }, 200);
     }
   };
 
   // ─────────────────────────────────────────────────────────────────────────
-  // DIRECTIONAL HAPTIC FEEDBACK (when phone points at user)
+  // DIRECTIONAL HAPTIC FEEDBACK (when phone points at user in beam cone)
   // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -458,8 +484,8 @@ export default function App() {
 
     // Check every 500ms
     const checkDirectionalHaptic = () => {
-      // Find users in the direction phone is pointing (within 30 degree cone)
-      const usersInDirection = nearbyUsers.filter(user => {
+      // Find users in the V-beam direction (within 30 degree cone at TOP of radar)
+      const usersInBeam = nearbyUsers.filter(user => {
         const bearing = calculateBearing(
           location.latitude,
           location.longitude,
@@ -467,27 +493,28 @@ export default function App() {
           user.longitude
         );
 
-        // Calculate angle difference between phone heading and user bearing
-        let angleDiff = Math.abs(heading - bearing);
-        if (angleDiff > 180) angleDiff = 360 - angleDiff;
+        // Phone heading points to top of screen (North direction)
+        // V-beam is fixed at top, so we check if user is in that direction
+        const relativeAngle = (heading - bearing + 360) % 360;
 
-        // Within 30 degree cone
-        return angleDiff < 30;
+        // V-beam points upward (0°), so check if user is within ±15° of top (0°)
+        // This means 345° to 15° range
+        return relativeAngle <= 15 || relativeAngle >= 345;
       });
 
-      if (usersInDirection.length > 0) {
-        // Find closest user in direction
-        let closestInDirection = usersInDirection[0];
+      if (usersInBeam.length > 0) {
+        // Find closest user in beam
+        let closestInBeam = usersInBeam[0];
         let minDistance = calculateDistance(
           location.latitude,
           location.longitude,
-          closestInDirection.latitude,
-          closestInDirection.longitude
+          closestInBeam.latitude,
+          closestInBeam.longitude
         );
 
         let isPinned = false;
 
-        usersInDirection.forEach(user => {
+        usersInBeam.forEach(user => {
           const dist = calculateDistance(
             location.latitude,
             location.longitude,
@@ -496,12 +523,12 @@ export default function App() {
           );
           if (dist < minDistance) {
             minDistance = dist;
-            closestInDirection = user;
+            closestInBeam = user;
           }
         });
 
         // Check if closest is pinned
-        isPinned = pinnedUsers.includes(closestInDirection.id);
+        isPinned = pinnedUsers.includes(closestInBeam.id);
 
         // Trigger haptic based on distance (closer = stronger)
         // Intensify for pinned users
@@ -996,26 +1023,40 @@ export default function App() {
       const relativeAngle = (heading - bearing + 360) % 360;
       const angleRad = (relativeAngle * Math.PI) / 180;
 
-      // Map distance to radar position
+      // Map distance to radar position - ADJUSTED SCALE
       const maxDistance = 200; // meters
       const normalizedDistance = Math.min(distance / maxDistance, 1);
 
       // Position on radar (0 = center, RADAR_SIZE/2 = edge)
-      const radius = normalizedDistance * (RADAR_SIZE / 2 - 30);
+      // Increased minimum radius to keep users away from center
+      const minRadius = RADAR_SIZE / 6; // Start at 1/6 from center instead of right at center
+      const maxRadius = RADAR_SIZE / 2 - 30;
+      const radius = minRadius + (normalizedDistance * (maxRadius - minRadius));
+
       const x = Math.sin(angleRad) * radius;
       const y = -Math.cos(angleRad) * radius;
 
-      // Calculate angle difference for fade effect (classic radar sweep)
+      // AIRPORT-STYLE RADAR SWEEP: Calculate angle difference for highlight and fade
       let angleDiff = Math.abs(radarSweepAngle - relativeAngle);
       if (angleDiff > 180) angleDiff = 360 - angleDiff;
 
-      // Fade trail: bright when swept, fades over 90 degrees
-      const fadeOpacity = Math.max(0, 1 - angleDiff / 90);
+      // Bright highlight when just swept (within 20 degrees behind sweep)
+      // Then gradual fade over 90 degrees
+      let sweepOpacity;
+      if (angleDiff <= 20) {
+        // Just swept - full brightness
+        sweepOpacity = 1;
+      } else if (angleDiff <= 90) {
+        // Fading trail
+        sweepOpacity = Math.max(0.15, 1 - ((angleDiff - 20) / 70));
+      } else {
+        // Very dim when not recently swept
+        sweepOpacity = 0.15;
+      }
 
-      // Size and intensity based on distance (closer = larger/brighter)
-      const dotSize = 15 - normalizedDistance * 8;
-      const baseOpacity = 1 - normalizedDistance * 0.5;
-      const finalOpacity = baseOpacity * (0.1 + fadeOpacity * 0.9); // 10% ambient + 90% sweep
+      // Size based on distance (closer = larger)
+      const dotSize = 16 - normalizedDistance * 8;
+      const finalOpacity = sweepOpacity;
 
       // Pinned users have different color
       const isPinned = pinnedUsers.includes(user.id);
@@ -1030,7 +1071,7 @@ export default function App() {
         <TouchableOpacity
           key={user.id}
           activeOpacity={0.7}
-          onLongPress={() => togglePinUser(user.id)}
+          onLongPress={() => togglePinUser(user.id, RADAR_SIZE / 2 + x, RADAR_SIZE / 2 + y)}
           delayLongPress={500}
           style={{
             position: 'absolute',
@@ -1074,7 +1115,7 @@ export default function App() {
               </View>
             </View>
 
-            {/* Radar sweep - rotating */}
+            {/* Radar sweep - rotating (airport style) */}
             <Animated.View
               style={[
                 styles.radarSweep,
@@ -1090,7 +1131,7 @@ export default function App() {
             {renderRadarDots()}
           </View>
 
-          {/* V-shaped beam indicator - FIXED at top, doesn't rotate - CORRECTED DIRECTION */}
+          {/* V-shaped beam indicator - FIXED at top, pointing UPWARD */}
           <View style={styles.beamContainer}>
             <View style={styles.beamLeft}>
               <View style={styles.beamTriangleLeft} />
@@ -1198,6 +1239,40 @@ export default function App() {
               />
             </>
           )}
+
+          {/* Pin wave animation - ORANGE, smaller */}
+          {showPinWave && (
+            <>
+              <Animated.View
+                style={[
+                  styles.pinWaveCircle,
+                  {
+                    left: pinWavePosition.x - 20,
+                    top: pinWavePosition.y - 20,
+                    transform: [{ scale: pinWaveAnim1 }],
+                    opacity: pinWaveAnim1.interpolate({
+                      inputRange: [1, 3],
+                      outputRange: [0.8, 0],
+                    }),
+                  },
+                ]}
+              />
+              <Animated.View
+                style={[
+                  styles.pinWaveCircle,
+                  {
+                    left: pinWavePosition.x - 20,
+                    top: pinWavePosition.y - 20,
+                    transform: [{ scale: pinWaveAnim2 }],
+                    opacity: pinWaveAnim2.interpolate({
+                      inputRange: [1, 3],
+                      outputRange: [0.6, 0],
+                    }),
+                  },
+                ]}
+              />
+            </>
+          )}
         </View>
 
         {/* Status text - ONLY show presence count when visible */}
@@ -1222,7 +1297,6 @@ export default function App() {
               key={crossing.id}
               style={styles.crossingItem}
               onPress={() => startChat(crossing.userId, crossing.userName)}
-              onLongPress={() => togglePinUser(crossing.userId)}
             >
               <View style={[
                 styles.crossingDot,
@@ -1707,7 +1781,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderWidth: 2,
     borderColor: 'transparent',
-    borderTopColor: 'rgba(0, 255, 136, 0.3)',
+    borderTopColor: 'rgba(0, 255, 136, 0.5)',
   },
   radarDot: {
     borderRadius: 9999,
@@ -1748,7 +1822,16 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     backgroundColor: 'transparent',
   },
-  // V-shaped beam - FIXED at top - CORRECTED to point DOWN (30° cone)
+  pinWaveCircle: {
+    position: 'absolute',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#ffcc00',
+    backgroundColor: 'transparent',
+  },
+  // V-shaped beam - FIXED at top - pointing UPWARD (outward from center)
   beamContainer: {
     position: 'absolute',
     top: 0,
@@ -1772,10 +1855,10 @@ const styles = StyleSheet.create({
     borderStyle: 'solid',
     borderLeftWidth: RADAR_SIZE / 8,
     borderRightWidth: 0,
-    borderBottomWidth: RADAR_SIZE / 2,
+    borderTopWidth: RADAR_SIZE / 2,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderBottomColor: 'rgba(0, 255, 136, 0.2)',
+    borderTopColor: 'rgba(0, 255, 136, 0.2)',
   },
   beamRight: {
     position: 'absolute',
@@ -1792,10 +1875,10 @@ const styles = StyleSheet.create({
     borderStyle: 'solid',
     borderLeftWidth: 0,
     borderRightWidth: RADAR_SIZE / 8,
-    borderBottomWidth: RADAR_SIZE / 2,
+    borderTopWidth: RADAR_SIZE / 2,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderBottomColor: 'rgba(0, 255, 136, 0.2)',
+    borderTopColor: 'rgba(0, 255, 136, 0.2)',
   },
   radarStatusText: {
     position: 'absolute',
