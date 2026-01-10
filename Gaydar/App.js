@@ -684,6 +684,28 @@ export default function App() {
     outputRange: ['0deg', '360deg'],
   });
 
+  // Restart radar animation when returning to radar view
+  useEffect(() => {
+    if (currentView === 'radar') {
+      // Stop existing animation
+      if (radarAnimRef.current) {
+        radarAnimRef.current.stop();
+      }
+
+      // Reset and restart
+      radarRotation.setValue(0);
+      radarAnimRef.current = Animated.loop(
+        Animated.timing(radarRotation, {
+          toValue: 1,
+          duration: 4000,
+          useNativeDriver: true,
+          isInteraction: false,
+        })
+      );
+      radarAnimRef.current.start();
+    }
+  }, [currentView]);
+
   // ─────────────────────────────────────────────────────────────────────────
   // GHOST MODE - LONG PRESS WITH WAVE ANIMATION
   // ─────────────────────────────────────────────────────────────────────────
@@ -1409,10 +1431,10 @@ const styles = StyleSheet.create({
     borderStyle: 'solid',
     borderLeftWidth: RADAR_SIZE / 8,
     borderRightWidth: 0,
-    borderBottomWidth: RADAR_SIZE / 2,
+    borderTopWidth: RADAR_SIZE / 2,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderBottomColor: 'rgba(0, 255, 136, 0.2)',
+    borderTopColor: 'rgba(0, 255, 136, 0.2)',
   },
   beamRight: {
     position: 'absolute',
@@ -1429,10 +1451,10 @@ const styles = StyleSheet.create({
     borderStyle: 'solid',
     borderLeftWidth: 0,
     borderRightWidth: RADAR_SIZE / 8,
-    borderBottomWidth: RADAR_SIZE / 2,
+    borderTopWidth: RADAR_SIZE / 2,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderBottomColor: 'rgba(0, 255, 136, 0.2)',
+    borderTopColor: 'rgba(0, 255, 136, 0.2)',
   },
   radarStatusText: {
     position: 'absolute',
