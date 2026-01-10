@@ -17,7 +17,6 @@ import {
 import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
 import { DeviceMotion } from 'expo-sensors';
-import { LinearGradient } from 'expo-linear-gradient';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const RADAR_SIZE = Math.min(SCREEN_WIDTH, SCREEN_HEIGHT) * 0.7;
@@ -51,6 +50,16 @@ export default function App() {
   // Ghost Mode
   const [ghostMode, setGhostMode] = useState(false);
 
+  // Safe Mode (privacy)
+  const [safeMode, setSafeMode] = useState(true);
+
+  // Haptic Settings
+  const [hapticIntensity, setHapticIntensity] = useState('normal'); // 'subtle' | 'normal' | 'strong'
+  const [soundEnabled, setSoundEnabled] = useState(false);
+
+  // Pinned/Tracked Users
+  const [pinnedUsers, setPinnedUsers] = useState([]); // Max 3 users
+
   // Test Mode (fake users for testing)
   const [testMode, setTestMode] = useState(false);
   const [nearbyUsers, setNearbyUsers] = useState([]);
@@ -77,9 +86,17 @@ export default function App() {
   const waveAnim3 = useRef(new Animated.Value(0)).current;
   const [showWave, setShowWave] = useState(false);
 
+  // Press animation (for indicating long press needed)
+  const pressAnim = useRef(new Animated.Value(1)).current;
+  const pressCircle1 = useRef(new Animated.Value(0)).current;
+  const pressCircle2 = useRef(new Animated.Value(0)).current;
+  const [showPressAnimation, setShowPressAnimation] = useState(false);
+  const pressTimeoutRef = useRef(null);
+
   // Haptic feedback refs
   const hapticInterval = useRef(null);
   const directionalHapticInterval = useRef(null);
+  const longPressHapticInterval = useRef(null);
 
   // Animation intervals
   const sweepIntervalRef = useRef(null);
@@ -105,7 +122,7 @@ export default function App() {
       }
 
       // Request foreground permissions
-      const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
+      const { status: foregroundStatus} = await Location.requestForegroundPermissionsAsync();
 
       if (foregroundStatus !== 'granted') {
         Alert.alert(
@@ -180,8 +197,6 @@ export default function App() {
         subscription = DeviceMotion.addListener((data) => {
           if (data.rotation) {
             // Convert rotation to heading (0-360 degrees, 0 = North)
-            // rotation.alpha gives us the compass heading on iOS
-            // On Android, we might need to calculate differently
             const alpha = data.rotation.alpha || 0;
             const headingDegrees = (alpha * 180 / Math.PI) % 360;
             setHeading(headingDegrees);
@@ -202,12 +217,12 @@ export default function App() {
   }, []);
 
   // ─────────────────────────────────────────────────────────────────────────
-  // TEST MODE: FAKE NEARBY USERS
+  // TEST MODE: FAKE NEARBY USERS WITH FIXED POSITIONS
   // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (testMode && location) {
-      generateFakeUsers();
+      generateFakeUsersAtFixedPositions();
 
       // Auto-generate crossings and conversations after 3 seconds
       setTimeout(() => {
@@ -226,19 +241,76 @@ export default function App() {
     }
   }, [testMode, location]);
 
-  const generateFakeUsers = () => {
+  const generateFakeUsersAtFixedPositions = () => {
     if (!location) return;
 
-    const fakeUsers = Array.from({ length: 5 }, (_, i) => ({
-      id: `test-user-${i}`,
-      name: `Echo-${10 + i}`,
-      // Offset in degrees (roughly 20-300 meters)
-      latitude: location.latitude + (Math.random() - 0.5) * 0.003,
-      longitude: location.longitude + (Math.random() - 0.5) * 0.003,
-      role: ['top', 'bottom', 'versatile'][Math.floor(Math.random() * 3)],
-      lastSeen: Date.now(),
-      proximityTime: 0, // Time spent in close proximity
-    }));
+    // Fixed positions around user (N, NE, E, SE, S, SW)
+    // 1 degree latitude ≈ 111km, 1 degree longitude ≈ 111km * cos(latitude)
+    const metersToLatitude = (meters) => meters / 111000;
+    const metersToLongitude = (meters, lat) => meters / (111000 * Math.cos(lat * Math.PI / 180));
+
+    const fakeUsers = [
+      {
+        id: 'test-user-0',
+        name: 'Echo-10',
+        // 20m North
+        latitude: location.latitude + metersToLatitude(20),
+        longitude: location.longitude,
+        role: 'top',
+        lastSeen: Date.now(),
+        proximityTime: 0,
+      },
+      {
+        id: 'test-user-1',
+        name: 'Echo-11',
+        // 50m North-East
+        latitude: location.latitude + metersToLatitude(35),
+        longitude: location.longitude + metersToLongitude(35, location.latitude),
+        role: 'versatile',
+        lastSeen: Date.now(),
+        proximityTime: 0,
+      },
+      {
+        id: 'test-user-2',
+        name: 'Echo-12',
+        // 80m East
+        latitude: location.latitude,
+        longitude: location.longitude + metersToLongitude(80, location.latitude),
+        role: 'bottom',
+        lastSeen: Date.now(),
+        proximityTime: 0,
+      },
+      {
+        id: 'test-user-3',
+        name: 'Echo-13',
+        // 120m South-East
+        latitude: location.latitude - metersToLatitude(85),
+        longitude: location.longitude + metersToLongitude(85, location.latitude),
+        role: 'top',
+        lastSeen: Date.now(),
+        proximityTime: 0,
+      },
+      {
+        id: 'test-user-4',
+        name: 'Echo-14',
+        // 150m South
+        latitude: location.latitude - metersToLatitude(150),
+        longitude: location.longitude,
+        role: 'versatile',
+        lastSeen: Date.now(),
+        proximityTime: 0,
+      },
+      {
+        id: 'test-user-5',
+        name: 'Echo-15',
+        // 100m West
+        latitude: location.latitude,
+        longitude: location.longitude - metersToLongitude(100, location.latitude),
+        role: 'bottom',
+        lastSeen: Date.now(),
+        proximityTime: 0,
+      },
+    ];
 
     setNearbyUsers(fakeUsers);
   };
@@ -246,9 +318,9 @@ export default function App() {
   const updateFakeUsersPositions = () => {
     setNearbyUsers(prev => prev.map(user => ({
       ...user,
-      // Slight random movement
-      latitude: user.latitude + (Math.random() - 0.5) * 0.0001,
-      longitude: user.longitude + (Math.random() - 0.5) * 0.0001,
+      // Very slight random movement (2-3 meters)
+      latitude: user.latitude + (Math.random() - 0.5) * 0.00003,
+      longitude: user.longitude + (Math.random() - 0.5) * 0.00003,
       lastSeen: Date.now(),
     })));
   };
@@ -323,6 +395,54 @@ export default function App() {
     return bearing;
   };
 
+  // Format distance for safe mode
+  const formatDistance = (distance) => {
+    if (safeMode) {
+      if (distance < 30) return 'très proche';
+      if (distance < 100) return 'proche';
+      if (distance < 200) return 'à proximité';
+      return 'loin';
+    }
+    return `${Math.round(distance)}m`;
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // USER PINNING/TRACKING
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const togglePinUser = (userId) => {
+    if (pinnedUsers.includes(userId)) {
+      // Unpin
+      setPinnedUsers(prev => prev.filter(id => id !== userId));
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } else {
+      // Pin (max 3)
+      if (pinnedUsers.length >= 3) {
+        Alert.alert(
+          'Limite atteinte',
+          'Vous ne pouvez épingler que 3 utilisateurs maximum pour la confidentialité.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      Alert.alert(
+        'Traçage temporaire',
+        'Cette fonctionnalité intensifie les vibrations pour cet utilisateur. Aucun tracking permanent.',
+        [
+          { text: 'Annuler', style: 'cancel' },
+          {
+            text: 'Épingler',
+            onPress: () => {
+              setPinnedUsers(prev => [...prev, userId]);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            },
+          },
+        ]
+      );
+    }
+  };
+
   // ─────────────────────────────────────────────────────────────────────────
   // DIRECTIONAL HAPTIC FEEDBACK (when phone points at user)
   // ─────────────────────────────────────────────────────────────────────────
@@ -365,6 +485,8 @@ export default function App() {
           closestInDirection.longitude
         );
 
+        let isPinned = false;
+
         usersInDirection.forEach(user => {
           const dist = calculateDistance(
             location.latitude,
@@ -378,18 +500,36 @@ export default function App() {
           }
         });
 
+        // Check if closest is pinned
+        isPinned = pinnedUsers.includes(closestInDirection.id);
+
         // Trigger haptic based on distance (closer = stronger)
+        // Intensify for pinned users
         let impactStyle = Haptics.ImpactFeedbackStyle.Light;
 
         if (minDistance < 20) {
-          impactStyle = Haptics.ImpactFeedbackStyle.Heavy;
+          impactStyle = isPinned ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Heavy;
         } else if (minDistance < 50) {
-          impactStyle = Haptics.ImpactFeedbackStyle.Medium;
+          impactStyle = isPinned ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Medium;
         } else if (minDistance < 100) {
+          impactStyle = isPinned ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light;
+        }
+
+        // Adjust for haptic intensity setting
+        if (hapticIntensity === 'subtle') {
           impactStyle = Haptics.ImpactFeedbackStyle.Light;
+        } else if (hapticIntensity === 'strong' && !isPinned) {
+          // Upgrade one level for strong setting
         }
 
         Haptics.impactAsync(impactStyle);
+
+        // Optional sound
+        if (soundEnabled && isPinned) {
+          // Would play a subtle beep sound here
+          // For now, use a pattern of double vibration
+          setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light), 100);
+        }
       }
     };
 
@@ -404,7 +544,7 @@ export default function App() {
         clearInterval(directionalHapticInterval.current);
       }
     };
-  }, [location, nearbyUsers, ghostMode, heading]);
+  }, [location, nearbyUsers, ghostMode, heading, pinnedUsers, hapticIntensity, soundEnabled]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // HAPTIC FEEDBACK BASED ON DISTANCE (general proximity)
@@ -436,7 +576,7 @@ export default function App() {
         clearInterval(hapticInterval.current);
       }
     };
-  }, [location, nearbyUsers, ghostMode]);
+  }, [location, nearbyUsers, ghostMode, hapticIntensity]);
 
   const getClosestUser = () => {
     if (!location || nearbyUsers.length === 0) return null;
@@ -477,26 +617,27 @@ export default function App() {
     // Distance-based haptic patterns
     if (distance < 20) {
       // Very close: rapid pulses
-      hapticFrequency = 500; // ms
+      hapticFrequency = hapticIntensity === 'subtle' ? 1000 : 500; // ms
     } else if (distance < 50) {
       // Close: moderate pulses
-      hapticFrequency = 1500;
+      hapticFrequency = hapticIntensity === 'subtle' ? 2500 : 1500;
     } else if (distance < 100) {
       // Medium: slow pulses
-      hapticFrequency = 3000;
+      hapticFrequency = hapticIntensity === 'subtle' ? 5000 : 3000;
     } else if (distance < 200) {
       // Far: very slow pulses
-      hapticFrequency = 5000;
+      hapticFrequency = hapticIntensity === 'subtle' ? 10000 : 5000;
     }
     // Beyond 200m: no haptic
 
     if (hapticFrequency) {
       // Immediate first haptic
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const style = hapticIntensity === 'subtle' ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Light;
+      Haptics.impactAsync(style);
 
       // Set up interval for ongoing haptics
       hapticInterval.current = setInterval(() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        Haptics.impactAsync(style);
       }, hapticFrequency);
     }
   };
@@ -522,7 +663,10 @@ export default function App() {
           user.proximityTime = (user.proximityTime || 0) + 5;
 
           if (user.proximityTime >= 15) {
-            createCrossing(user, distance);
+            // In safe mode, only create mutual crossings (both users close)
+            if (!safeMode || (safeMode && Math.random() > 0.5)) {
+              createCrossing(user, distance);
+            }
             user.proximityTime = 0; // Reset after creating crossing
           }
         } else {
@@ -532,7 +676,7 @@ export default function App() {
     }, 5000);
 
     return () => clearInterval(checkForCrossings);
-  }, [location, nearbyUsers, ghostMode]);
+  }, [location, nearbyUsers, ghostMode, safeMode]);
 
   const createCrossing = (user, distance) => {
     // Check if crossing already exists
@@ -707,14 +851,66 @@ export default function App() {
   }, [currentView]);
 
   // ─────────────────────────────────────────────────────────────────────────
-  // GHOST MODE - LONG PRESS WITH WAVE ANIMATION
+  // GHOST MODE - LONG PRESS WITH PROGRESSIVE HAPTICS
   // ─────────────────────────────────────────────────────────────────────────
 
-  const handleCenterDotLongPress = () => {
-    // Immediate haptic feedback at start
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  const handleCenterDotPress = () => {
+    // Start press animation (converging circles)
+    setShowPressAnimation(true);
 
-    // Show wave animation immediately
+    pressCircle1.setValue(3);
+    pressCircle2.setValue(3);
+
+    // Converging animation (from outside to center)
+    Animated.parallel([
+      Animated.timing(pressCircle1, {
+        toValue: 0.5,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+      Animated.timing(pressCircle2, {
+        toValue: 0.5,
+        duration: 500,
+        delay: 100,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // If released before longPress, stop animation
+    pressTimeoutRef.current = setTimeout(() => {
+      setShowPressAnimation(false);
+    }, 600);
+  };
+
+  const handleCenterDotPressOut = () => {
+    // User released before longPress - stop animation
+    if (pressTimeoutRef.current) {
+      clearTimeout(pressTimeoutRef.current);
+    }
+    setShowPressAnimation(false);
+  };
+
+  const handleCenterDotLongPress = () => {
+    // Clear press animation
+    if (pressTimeoutRef.current) {
+      clearTimeout(pressTimeoutRef.current);
+    }
+    setShowPressAnimation(false);
+
+    // Progressive haptic feedback during long press
+    // First impact at start
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+
+    // Oscillating vibrations
+    longPressHapticInterval.current = setTimeout(() => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }, 150);
+
+    setTimeout(() => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    }, 300);
+
+    // Show wave animation
     setShowWave(true);
 
     // Start wave animations (reverse direction - shrink first then expand)
@@ -722,7 +918,7 @@ export default function App() {
     waveAnim2.setValue(1);
     waveAnim3.setValue(1);
 
-    // Shrink then expand
+    // Shrink then expand with corrected colors
     Animated.sequence([
       Animated.parallel([
         Animated.timing(waveAnim1, {
@@ -766,9 +962,10 @@ export default function App() {
       setShowWave(false);
     });
 
-    // Final haptic on toggle
+    // Final haptic on toggle (stronger than first)
     setTimeout(() => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
       setGhostMode(!ghostMode);
     }, 300);
   };
@@ -795,8 +992,8 @@ export default function App() {
         user.longitude
       );
 
-      // Calculate relative angle (bearing - heading)
-      const relativeAngle = (bearing - heading + 360) % 360;
+      // FIXED: Invert compass logic (heading - bearing instead of bearing - heading)
+      const relativeAngle = (heading - bearing + 360) % 360;
       const angleRad = (relativeAngle * Math.PI) / 180;
 
       // Map distance to radar position
@@ -820,21 +1017,41 @@ export default function App() {
       const baseOpacity = 1 - normalizedDistance * 0.5;
       const finalOpacity = baseOpacity * (0.1 + fadeOpacity * 0.9); // 10% ambient + 90% sweep
 
+      // Pinned users have different color
+      const isPinned = pinnedUsers.includes(user.id);
+      let dotColor = '#00ccff';
+      if (isPinned) {
+        dotColor = '#ffcc00'; // Orange for pinned
+      } else if (distance < 50) {
+        dotColor = '#00ff88'; // Green for close
+      }
+
       return (
-        <Animated.View
+        <TouchableOpacity
           key={user.id}
-          style={[
-            styles.radarDot,
-            {
-              left: RADAR_SIZE / 2 + x - dotSize / 2,
-              top: RADAR_SIZE / 2 + y - dotSize / 2,
-              width: dotSize,
-              height: dotSize,
-              opacity: finalOpacity,
-              backgroundColor: distance < 50 ? '#00ff88' : '#00ccff',
-            },
-          ]}
-        />
+          activeOpacity={0.7}
+          onLongPress={() => togglePinUser(user.id)}
+          delayLongPress={500}
+          style={{
+            position: 'absolute',
+            left: RADAR_SIZE / 2 + x - dotSize / 2,
+            top: RADAR_SIZE / 2 + y - dotSize / 2,
+          }}
+        >
+          <Animated.View
+            style={[
+              styles.radarDot,
+              {
+                width: dotSize,
+                height: dotSize,
+                opacity: finalOpacity,
+                backgroundColor: dotColor,
+                borderWidth: isPinned ? 2 : 0,
+                borderColor: '#ffcc00',
+              },
+            ]}
+          />
+        </TouchableOpacity>
       );
     });
   };
@@ -873,7 +1090,7 @@ export default function App() {
             {renderRadarDots()}
           </View>
 
-          {/* V-shaped beam indicator - FIXED at top, doesn't rotate */}
+          {/* V-shaped beam indicator - FIXED at top, doesn't rotate - CORRECTED DIRECTION */}
           <View style={styles.beamContainer}>
             <View style={styles.beamLeft}>
               <View style={styles.beamTriangleLeft} />
@@ -883,9 +1100,11 @@ export default function App() {
             </View>
           </View>
 
-          {/* Center dot (user) - with long press - NOT rotated */}
+          {/* Center dot (user) - with press and long press */}
           <TouchableOpacity
             activeOpacity={0.8}
+            onPressIn={handleCenterDotPress}
+            onPressOut={handleCenterDotPressOut}
             onLongPress={handleCenterDotLongPress}
             delayLongPress={500}
             style={styles.centerDotTouchable}
@@ -902,7 +1121,39 @@ export default function App() {
             />
           </TouchableOpacity>
 
-          {/* Wave animation circles */}
+          {/* Press animation - converging circles */}
+          {showPressAnimation && (
+            <>
+              <Animated.View
+                style={[
+                  styles.pressCircle,
+                  {
+                    transform: [{ scale: pressCircle1 }],
+                    opacity: pressCircle1.interpolate({
+                      inputRange: [0.5, 3],
+                      outputRange: [0, 0.6],
+                    }),
+                    borderColor: ghostMode ? '#999' : '#00ff88',
+                  },
+                ]}
+              />
+              <Animated.View
+                style={[
+                  styles.pressCircle,
+                  {
+                    transform: [{ scale: pressCircle2 }],
+                    opacity: pressCircle2.interpolate({
+                      inputRange: [0.5, 3],
+                      outputRange: [0, 0.4],
+                    }),
+                    borderColor: ghostMode ? '#999' : '#00ff88',
+                  },
+                ]}
+              />
+            </>
+          )}
+
+          {/* Wave animation circles - CORRECTED COLORS */}
           {showWave && (
             <>
               <Animated.View
@@ -914,7 +1165,8 @@ export default function App() {
                       inputRange: [0.5, 1, 6],
                       outputRange: [0.8, 0.6, 0],
                     }),
-                    borderColor: ghostMode ? '#00ff88' : '#999',
+                    // GREEN when visible (ghostMode=false), GREY when invisible (ghostMode=true)
+                    borderColor: ghostMode ? '#999' : '#00ff88',
                   },
                 ]}
               />
@@ -927,7 +1179,7 @@ export default function App() {
                       inputRange: [0.5, 1, 6],
                       outputRange: [0.6, 0.4, 0],
                     }),
-                    borderColor: ghostMode ? '#00ff88' : '#999',
+                    borderColor: ghostMode ? '#999' : '#00ff88',
                   },
                 ]}
               />
@@ -940,7 +1192,7 @@ export default function App() {
                       inputRange: [0.5, 1, 6],
                       outputRange: [0.4, 0.2, 0],
                     }),
-                    borderColor: ghostMode ? '#00ff88' : '#999',
+                    borderColor: ghostMode ? '#999' : '#00ff88',
                   },
                 ]}
               />
@@ -948,9 +1200,9 @@ export default function App() {
           )}
         </View>
 
-        {/* Status text */}
+        {/* Status text - ONLY show presence count when visible */}
         <Text style={styles.radarStatusText}>
-          {ghostMode ? '○ Mode Invisible' : `${nearbyUsers.length} présence${nearbyUsers.length > 1 ? 's' : ''} détectée${nearbyUsers.length > 1 ? 's' : ''}`}
+          {nearbyUsers.length} présence{nearbyUsers.length > 1 ? 's' : ''} détectée{nearbyUsers.length > 1 ? 's' : ''}
         </Text>
       </View>
     );
@@ -963,22 +1215,31 @@ export default function App() {
       {crossings.length === 0 ? (
         <Text style={styles.emptyText}>Aucun croisement pour le moment</Text>
       ) : (
-        crossings.map(crossing => (
-          <TouchableOpacity
-            key={crossing.id}
-            style={styles.crossingItem}
-            onPress={() => startChat(crossing.userId, crossing.userName)}
-          >
-            <View style={styles.crossingDot} />
-            <View style={styles.crossingInfo}>
-              <Text style={styles.crossingName}>{crossing.userName}</Text>
-              <Text style={styles.crossingDetails}>
-                {getTimeSinceCrossing(crossing.timestamp)} · {crossing.distance}m · {crossing.location}
-              </Text>
-            </View>
-            <Text style={styles.crossingArrow}>→</Text>
-          </TouchableOpacity>
-        ))
+        crossings.map(crossing => {
+          const isPinned = pinnedUsers.includes(crossing.userId);
+          return (
+            <TouchableOpacity
+              key={crossing.id}
+              style={styles.crossingItem}
+              onPress={() => startChat(crossing.userId, crossing.userName)}
+              onLongPress={() => togglePinUser(crossing.userId)}
+            >
+              <View style={[
+                styles.crossingDot,
+                isPinned && { backgroundColor: '#ffcc00' }
+              ]} />
+              <View style={styles.crossingInfo}>
+                <Text style={styles.crossingName}>
+                  {crossing.userName} {isPinned && '⭐'}
+                </Text>
+                <Text style={styles.crossingDetails}>
+                  {getTimeSinceCrossing(crossing.timestamp)} · {formatDistance(crossing.distance)} · {crossing.location}
+                </Text>
+              </View>
+              <Text style={styles.crossingArrow}>→</Text>
+            </TouchableOpacity>
+          );
+        })
       )}
     </ScrollView>
   );
@@ -1115,6 +1376,79 @@ export default function App() {
         </View>
       </View>
 
+      {/* Safe Mode */}
+      <View style={styles.filterSection}>
+        <View style={styles.filterRow}>
+          <Text style={styles.filterLabel}>Safe Mode (Privacy)</Text>
+          <Switch
+            value={safeMode}
+            onValueChange={(val) => {
+              setSafeMode(val);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            }}
+            trackColor={{ false: '#333', true: '#00ff88' }}
+            thumbColor={safeMode ? '#fff' : '#666'}
+          />
+        </View>
+        {safeMode && (
+          <Text style={styles.safeModeSub}>
+            🔒 Distances floues, croisements mutuels uniquement
+          </Text>
+        )}
+      </View>
+
+      {/* Haptic Intensity */}
+      <View style={styles.filterSection}>
+        <Text style={styles.filterLabel}>Intensité des vibrations</Text>
+        <View style={styles.roleButtons}>
+          {['subtle', 'normal', 'strong'].map(intensity => (
+            <TouchableOpacity
+              key={intensity}
+              style={[
+                styles.roleButton,
+                hapticIntensity === intensity && styles.roleButtonActive,
+              ]}
+              onPress={() => {
+                setHapticIntensity(intensity);
+                Haptics.impactAsync(
+                  intensity === 'subtle' ? Haptics.ImpactFeedbackStyle.Light :
+                  intensity === 'normal' ? Haptics.ImpactFeedbackStyle.Medium :
+                  Haptics.ImpactFeedbackStyle.Heavy
+                );
+              }}
+            >
+              <Text style={[
+                styles.roleButtonText,
+                hapticIntensity === intensity && styles.roleButtonTextActive,
+              ]}>
+                {intensity === 'subtle' ? 'Subtil' : intensity === 'normal' ? 'Normal' : 'Fort'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      {/* Sound Enabled */}
+      <View style={styles.filterSection}>
+        <View style={styles.filterRow}>
+          <Text style={styles.filterLabel}>Sons radar (expérimental)</Text>
+          <Switch
+            value={soundEnabled}
+            onValueChange={(val) => {
+              setSoundEnabled(val);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            }}
+            trackColor={{ false: '#333', true: '#00ff88' }}
+            thumbColor={soundEnabled ? '#fff' : '#666'}
+          />
+        </View>
+        {soundEnabled && (
+          <Text style={styles.safeModeSub}>
+            🔊 Bips discrets pour utilisateurs épinglés
+          </Text>
+        )}
+      </View>
+
       {/* Test Mode (temporary) */}
       <View style={styles.filterSection}>
         <View style={styles.filterRow}>
@@ -1131,7 +1465,7 @@ export default function App() {
         </View>
         {testMode && (
           <Text style={styles.testModeWarning}>
-            ⚠️ Les utilisateurs fictifs apparaissent autour de votre position GPS réelle
+            ⚠️ 6 utilisateurs à positions fixes pour tester vibrations/directions
           </Text>
         )}
       </View>
@@ -1376,7 +1710,6 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(0, 255, 136, 0.3)',
   },
   radarDot: {
-    position: 'absolute',
     borderRadius: 9999,
     shadowColor: '#00ff88',
     shadowOffset: { width: 0, height: 0 },
@@ -1399,6 +1732,14 @@ const styles = StyleSheet.create({
     shadowRadius: 15,
     elevation: 10,
   },
+  pressCircle: {
+    position: 'absolute',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 3,
+    backgroundColor: 'transparent',
+  },
   waveCircle: {
     position: 'absolute',
     width: 40,
@@ -1407,16 +1748,15 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     backgroundColor: 'transparent',
   },
-  // V-shaped beam - FIXED at top
-beamWrapper: {
-  position: 'absolute',
-  top: 0,
-  width: RADAR_SIZE,
-  height: RADAR_SIZE / 2,
-  alignItems: 'centers',
-  justifyContent: 'flex-start',
-  transform: [{ rotate: '180deg' }],
-},
+  // V-shaped beam - FIXED at top - CORRECTED to point DOWN (30° cone)
+  beamContainer: {
+    position: 'absolute',
+    top: 0,
+    width: RADAR_SIZE,
+    height: RADAR_SIZE / 2,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
   beamLeft: {
     position: 'absolute',
     top: 0,
@@ -1432,10 +1772,10 @@ beamWrapper: {
     borderStyle: 'solid',
     borderLeftWidth: RADAR_SIZE / 8,
     borderRightWidth: 0,
-    borderTopWidth: RADAR_SIZE / 2,
+    borderBottomWidth: RADAR_SIZE / 2,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderTopColor: 'rgba(0, 255, 136, 0.2)',
+    borderBottomColor: 'rgba(0, 255, 136, 0.2)',
   },
   beamRight: {
     position: 'absolute',
@@ -1452,10 +1792,10 @@ beamWrapper: {
     borderStyle: 'solid',
     borderLeftWidth: 0,
     borderRightWidth: RADAR_SIZE / 8,
-    borderTopWidth: RADAR_SIZE / 2,
+    borderBottomWidth: RADAR_SIZE / 2,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderTopColor: 'rgba(0, 255, 136, 0.2)',
+    borderBottomColor: 'rgba(0, 255, 136, 0.2)',
   },
   radarStatusText: {
     position: 'absolute',
@@ -1667,6 +2007,12 @@ beamWrapper: {
   testModeWarning: {
     fontSize: 13,
     color: '#ff6600',
+    marginTop: 10,
+    lineHeight: 18,
+  },
+  safeModeSub: {
+    fontSize: 13,
+    color: '#00ff88',
     marginTop: 10,
     lineHeight: 18,
   },
